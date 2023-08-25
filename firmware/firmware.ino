@@ -4,16 +4,22 @@
 #include <SD.h>
 #include <SerialFlash.h>
 #include <Adafruit_NeoPixel.h>
-
-#define NUMSTEPS 8
-#define LEDPIN 24
+#include <CD74HC4067.h> //https://github.com/waspinator/CD74HC4067
+#include "config.h"
 
 #include "AudioSampleSnare.h"        // http://www.freesound.org/people/KEVOY/sounds/82583/
 #include "AudioSampleTomtom.h"       // http://www.freesound.org/people/zgump/sounds/86334/
 #include "AudioSampleHihat.h"        // http://www.freesound.org/people/mhc/sounds/102790/
 #include "AudioSampleKick.h"         // http://www.freesound.org/people/DWSD/sounds/171104/
 
-int bpm = 120;
+
+CD74HC4067 _ledMux(16, 17, 18, 19);
+CD74HC4067 _hallAMux(20, 21, 22, 23);
+CD74HC4067 _hallBMux(24, 25, 26, 27);
+
+
+
+int _bpm = 120;
 int step = 0;
 
 AudioPlayMemory sounds[NUMSTEPS];
@@ -46,22 +52,11 @@ AudioConnection c12(mainMixer, 0, dac, 0);
 
 AudioControlSGTL5000 audioShield;
 
-int pins[NUMSTEPS] = {
-  A13,
-  A20,
-  A19,
-  A18,
 
-  A17,
-  A16,
-  A15,
-  A12
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
+unsigned long _timestamp = 0;
 
-};
-
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, LEDPIN, NEO_RGB + NEO_KHZ800);
-
-void test() {
+void audioTest() {
   sounds[0].play(AudioSampleKick);
   delay(250);
 
@@ -86,7 +81,59 @@ void test() {
   sounds[7].play(AudioSampleHihat);
   delay(250);
 }
+void ledTest() {
+  for (auto i = 0; i < NUMSTEPS; i++) {
+    for (auto j = 0; j < 3; j++) {
+      strip.setPixelColor(i, strip.Color(j == 0 ? 255 : 0, j == 1 ? 255 : 0, j == 3 ? 255 : 0));
+      strip.show();
+      delay(100);
+    }
+
+  }
+  strip.clear();
+  delay(100);
+}
+
+void showStepLed(int index) {
+  _ledMux.channel(index);
+  digitalWrite(LED_SIG_PIN, HIGH);
+}
+void hideStepLed() {
+  digitalWrite(LED_SIG_PIN, LOW);
+}
+void renderStepAndIncrement() {
+  showStepLed(step);
+  strip.clear();
+  strip.setPixelColor(step, strip.Color(255, 0, 0));
+  strip.show();
+  sounds[step].play(AudioSampleKick);
+
+
+  step = (step + 1) % NUMSTEPS;
+  _timestamp = timestamp;
+}
+void readSensors() {
+  auto potiValue = analogRead(POTI_PIN);
+  auto buttonValue = digitalRead(BUTTON_PIN);
+
+  _bpm = map(potiValue, 0, 1024, 60, 200);
+  int hallValues[NUMSTEPS * 4];
+  for (auto i = 0; i < 16; i++) {
+    _hallAMux.channel(i);
+    _hallBMux.channel(i);
+    delay(2);
+    hallValues[i] = analogRead(HALL_A_SIG_PIN);
+    hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
+  }
+
+  for (auto i = 0; i < NUMSTEPS; i++) {
+
+  }
+}
 void setup() {
+  pinMode(LED_SIG_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
   // audio
   AudioMemory(10);
   audioShield.enable();
@@ -107,29 +154,37 @@ void setup() {
 }
 
 void loop() {
-  strip.clear();
+  auto timestamp = millis();
 
-  auto input = analogRead(pins[step]);
-  if (input < 128) { // cube not placed
-    strip.setPixelColor(step, strip.Color(255, 255, 255));
-  } else if (input < 256) { // cube rotated to kick
-    strip.setPixelColor(step, strip.Color(255, 0, 0));
-    sounds[step].play(AudioSampleKick);
-  } else if (input < 512) { // cube rotated to snare
-    strip.setPixelColor(step, strip.Color(0, 255, 0));
-    sounds[step].play(AudioSampleSnare);
-  } else if (input < 768) { // cube rotated to hihats
-    strip.setPixelColor(step, strip.Color(0, 0, 255));
-    sounds[step].play(AudioSampleHihat);
-  } else {// cube rotated to clap
-    strip.setPixelColor(step, strip.Color(255, 0, 255));
-    sounds[step].play(AudioSampleTomtom);
+  ledTest();
+  audioTest();
+
+  readSensors();
+  if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
+    renderStepAndIncrement();
   }
+
+
+  //  auto input = analogRead(pins[step]);
+  //  if (input < 128) { // cube not placed
+  //    strip.setPixelColor(step, strip.Color(255, 255, 255));
+  //  } else if (input < 256) { // cube rotated to kick
+  //    strip.setPixelColor(step, strip.Color(255, 0, 0));
+  //    sounds[step].play(AudioSampleKick);
+  //  } else if (input < 512) { // cube rotated to snare
+  //    strip.setPixelColor(step, strip.Color(0, 255, 0));
+  //    sounds[step].play(AudioSampleSnare);
+  //  } else if (input < 768) { // cube rotated to hihats
+  //    strip.setPixelColor(step, strip.Color(0, 0, 255));
+  //    sounds[step].play(AudioSampleHihat);
+  //  } else {// cube rotated to clap
+  //    strip.setPixelColor(step, strip.Color(255, 0, 255));
+  //    sounds[step].play(AudioSampleTomtom);
+  //  }
   strip.show();
 
-  // move to the next step and wait for the next tick
-  step = (step + 1) % NUMSTEPS;
-  delay(60.0 * 1000 / bpm);
 
-    test();
+  // move to the next step and wait for the next tick
+  //  delay();
+
 }
