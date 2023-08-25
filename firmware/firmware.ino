@@ -5,6 +5,7 @@
 #include <SerialFlash.h>
 #include <Adafruit_NeoPixel.h>
 #include <CD74HC4067.h> //https://github.com/waspinator/CD74HC4067
+#include "Parameter.h"
 #include "config.h"
 
 #include "AudioSampleSnare.h"        // http://www.freesound.org/people/KEVOY/sounds/82583/
@@ -13,14 +14,13 @@
 #include "AudioSampleKick.h"         // http://www.freesound.org/people/DWSD/sounds/171104/
 
 
-CD74HC4067 _ledMux(16, 17, 18, 19);
-CD74HC4067 _hallAMux(20, 21, 22, 23);
-CD74HC4067 _hallBMux(24, 25, 26, 27);
-
+CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
+CD74HC4067 _hallAMux(HALL_A_SELECT_0_PIN, HALL_A_SELECT_1_PIN, HALL_A_SELECT_2_PIN, HALL_A_SELECT_3_PIN);
+CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_PIN, HALL_B_SELECT_3_PIN);
 
 
 int _bpm = 120;
-int step = 0;
+int _step = 0;
 
 AudioPlayMemory sounds[NUMSTEPS];
 //AudioPlayMemory snare;
@@ -56,6 +56,9 @@ AudioControlSGTL5000 audioShield;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
 unsigned long _timestamp = 0;
 
+ParameterGroup _parameters;
+Parameter<bool> _on;
+
 void audioTest() {
   sounds[0].play(AudioSampleKick);
   delay(250);
@@ -81,20 +84,33 @@ void audioTest() {
   sounds[7].play(AudioSampleHihat);
   delay(250);
 }
-void ledTest() {
+void neoPixelTest() {
+  Serial.print("started neopixel test");
   for (auto i = 0; i < NUMSTEPS; i++) {
     for (auto j = 0; j < 3; j++) {
-      strip.setPixelColor(i, strip.Color(j == 0 ? 255 : 0, j == 1 ? 255 : 0, j == 3 ? 255 : 0));
+      strip.setPixelColor(i, strip.Color(j == 0 ? 255 : 0, j == 1 ? 255 : 0, j == 2 ? 255 : 0));
       strip.show();
-      delay(100);
+      delay(500);
     }
-
+    delay(500);
   }
   strip.clear();
   delay(100);
+  Serial.println(": done");
+}
+
+void ledTest() {
+  Serial.print("started led test");
+  for (auto i = 0; i < NUMSTEPS; i++) {
+    showStepLed(i);
+    delay(1000);
+  }
+  Serial.println(": done");
 }
 
 void showStepLed(int index) {
+  Serial.print("show led: ");
+  Serial.println(index);
   _ledMux.channel(index);
   digitalWrite(LED_SIG_PIN, HIGH);
 }
@@ -102,21 +118,29 @@ void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void renderStepAndIncrement() {
-  showStepLed(step);
+  Serial.print("rendering step ");
+  Serial.println(_step);
+  showStepLed(_step-1);
   strip.clear();
-  strip.setPixelColor(step, strip.Color(255, 0, 0));
+  strip.setPixelColor(_step, strip.Color(0, 255, 255));
   strip.show();
-  sounds[step].play(AudioSampleKick);
+  sounds[_step].play(AudioSampleKick);
 
 
-  step = (step + 1) % NUMSTEPS;
-  _timestamp = timestamp;
+  _step = (_step + 1) % NUMSTEPS;
+  _timestamp = millis();
 }
 void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
-  auto buttonValue = digitalRead(BUTTON_PIN);
+  bool buttonValue = digitalRead(BUTTON_PIN);
+  _on = !buttonValue;
 
-  _bpm = map(potiValue, 0, 1024, 60, 200);
+  //  Serial.print("poti: ");
+  //  Serial.print(potiValue);
+  //  Serial.print(", button: ");
+  //  Serial.println(buttonValue);
+
+  _bpm = map(potiValue, 0, 1024, 600, 20);
   int hallValues[NUMSTEPS * 4];
   for (auto i = 0; i < 16; i++) {
     _hallAMux.channel(i);
@@ -126,13 +150,19 @@ void readSensors() {
     hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
   }
 
-  for (auto i = 0; i < NUMSTEPS; i++) {
-
-  }
+//  for (auto i = 0; i < NUMSTEPS * 4; i++) {
+//    Serial.print(hallValues[i]);
+//    Serial.print(",");
+//  }
+//  Serial.println();
 }
 void setup() {
+  Serial.begin(115200);
+
   pinMode(LED_SIG_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  _on.setup("on", false);
 
   // audio
   AudioMemory(10);
@@ -156,13 +186,17 @@ void setup() {
 void loop() {
   auto timestamp = millis();
 
-  ledTest();
-  audioTest();
+  //  ledTest();
+  //  neoPixelTest();
+  //  audioTest();
 
   readSensors();
-  if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
-    renderStepAndIncrement();
+  if (_on) {
+    if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
+      renderStepAndIncrement();
+    }
   }
+
 
 
   //  auto input = analogRead(pins[step]);
@@ -181,7 +215,7 @@ void loop() {
   //    strip.setPixelColor(step, strip.Color(255, 0, 255));
   //    sounds[step].play(AudioSampleTomtom);
   //  }
-  strip.show();
+  //  strip.show();
 
 
   // move to the next step and wait for the next tick
