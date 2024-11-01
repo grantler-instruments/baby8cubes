@@ -19,5 +19,5 @@
 #define HALL_B_SELECT_2_PIN 34
 #define HALL_B_SELECT_3_PIN 35
 
-#define HALL_A_SIG_PIN 38
-#define HALL_B_SIG_PIN 37
+#define HALL_A_SIG_PIN A6
+#define HALL_B_SIG_PIN A7

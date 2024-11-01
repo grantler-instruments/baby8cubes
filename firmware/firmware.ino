@@ -4,14 +4,15 @@
 #include <SD.h>
 #include <SerialFlash.h>
 #include <Adafruit_NeoPixel.h>
-#include <CD74HC4067.h> //https://github.com/waspinator/CD74HC4067
+#include <Adafruit_VL53L0X.h>
+#include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
 #include "Parameter.h"
 #include "config.h"
 
-#include "AudioSampleSnare.h"        // http://www.freesound.org/people/KEVOY/sounds/82583/
-#include "AudioSampleTomtom.h"       // http://www.freesound.org/people/zgump/sounds/86334/
-#include "AudioSampleHihat.h"        // http://www.freesound.org/people/mhc/sounds/102790/
-#include "AudioSampleKick.h"         // http://www.freesound.org/people/DWSD/sounds/171104/
+#include "AudioSampleSnare.h"   // http://www.freesound.org/people/KEVOY/sounds/82583/
+#include "AudioSampleTomtom.h"  // http://www.freesound.org/people/zgump/sounds/86334/
+#include "AudioSampleHihat.h"   // http://www.freesound.org/people/mhc/sounds/102790/
+#include "AudioSampleKick.h"    // http://www.freesound.org/people/DWSD/sounds/171104/
 
 
 CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
@@ -21,6 +22,10 @@ CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_P
 
 int _bpm = 120;
 int _step = 0;
+int _velocity = 127;
+
+int hallValues[NUMSTEPS * 4];
+
 
 AudioPlayMemory sounds[NUMSTEPS];
 //AudioPlayMemory snare;
@@ -55,6 +60,9 @@ AudioControlSGTL5000 audioShield;
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
 unsigned long _timestamp = 0;
+
+Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+
 
 ParameterGroup _parameters;
 Parameter<bool> _on;
@@ -112,7 +120,6 @@ void showStepLed(int index) {
   Serial.print("show led: ");
   Serial.println(index);
   _ledMux.channel(index);
-  digitalWrite(LED_SIG_PIN, HIGH);
 }
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
@@ -120,7 +127,7 @@ void hideStepLed() {
 void renderStepAndIncrement() {
   Serial.print("rendering step ");
   Serial.println(_step);
-  showStepLed(_step-1);
+  showStepLed(_step);
   strip.clear();
   strip.setPixelColor(_step, strip.Color(0, 255, 255));
   strip.show();
@@ -141,7 +148,6 @@ void readSensors() {
   //  Serial.println(buttonValue);
 
   _bpm = map(potiValue, 0, 1024, 600, 20);
-  int hallValues[NUMSTEPS * 4];
   for (auto i = 0; i < 16; i++) {
     _hallAMux.channel(i);
     _hallBMux.channel(i);
@@ -150,17 +156,33 @@ void readSensors() {
     hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
   }
 
-//  for (auto i = 0; i < NUMSTEPS * 4; i++) {
-//    Serial.print(hallValues[i]);
-//    Serial.print(",");
-//  }
-//  Serial.println();
+  //  for (auto i = 0; i < NUMSTEPS * 4; i++) {
+  //    Serial.print(hallValues[i]);
+  //    Serial.print(",");
+  //  }
+  //  Serial.println();
+}
+void printHallValues() {
+  for (auto i = 0; i < 32; i++) {
+    Serial.print(hallValues[i]);
+    if (i < 31) {
+      Serial.print(", ");
+    } else {
+      Serial.println();
+    }
+  }
 }
 void setup() {
   Serial.begin(115200);
 
   pinMode(LED_SIG_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  for (auto i = 0; i < NUMSTEPS * 4; i++) {
+    hallValues[i] = 0;
+  }
+
+
 
   _on.setup("on", false);
 
@@ -181,6 +203,14 @@ void setup() {
   // led
   strip.begin();
   strip.show();
+
+  // sert led high
+  digitalWrite(LED_SIG_PIN, HIGH);
+
+
+  if (!lox.begin()) {
+    Serial.println(F("Failed to boot VL53L0X"));
+  }
 }
 
 void loop() {
@@ -190,7 +220,19 @@ void loop() {
   //  neoPixelTest();
   //  audioTest();
 
+  VL53L0X_RangingMeasurementData_t measure;
+  lox.rangingTest(&measure, false);  // pass in 'true' to get debug data printout!
+  // TODO: map measurement to velocity
+
+  if (measure.RangeStatus != 4) {  // phase failures have incorrect data
+    Serial.print("Distance (mm): ");
+    Serial.println(measure.RangeMilliMeter);
+  } else {
+    Serial.println(" out of range ");
+  }
+
   readSensors();
+  printHallValues();
   if (_on) {
     if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
       renderStepAndIncrement();
@@ -220,5 +262,4 @@ void loop() {
 
   // move to the next step and wait for the next tick
   //  delay();
-
 }
