@@ -5,6 +5,7 @@
 #include <SerialFlash.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_VL53L0X.h>
+#include <Adafruit_MPU6050.h>
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
 #include "Parameter.h"
 #include "config.h"
@@ -59,9 +60,9 @@ AudioControlSGTL5000 audioShield;
 
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
-unsigned long _timestamp = 0;
-
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+Adafruit_MPU6050 mpu;
+unsigned long _timestamp = 0;
 
 
 ParameterGroup _parameters;
@@ -208,9 +209,16 @@ void setup() {
   digitalWrite(LED_SIG_PIN, HIGH);
 
 
+  Serial.println("setup distance sensor");
   if (!lox.begin()) {
     Serial.println(F("Failed to boot VL53L0X"));
   }
+  delay(1000);
+  Serial.println("setup motion sensor");
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+  }
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
 }
 
 void loop() {
@@ -222,7 +230,15 @@ void loop() {
 
   VL53L0X_RangingMeasurementData_t measure;
   lox.rangingTest(&measure, false);  // pass in 'true' to get debug data printout!
-  // TODO: map measurement to velocity
+                                     // TODO: map measurement to velocity
+
+
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+  Serial.print(g.gyro.x);
+  // TODO: map gyro value to speed modulation
+
+
 
   if (measure.RangeStatus != 4) {  // phase failures have incorrect data
     Serial.print("Distance (mm): ");
