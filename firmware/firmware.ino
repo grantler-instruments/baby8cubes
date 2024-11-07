@@ -99,11 +99,12 @@ void neoPixelTest() {
     for (auto j = 0; j < 3; j++) {
       strip.setPixelColor(i, strip.Color(j == 0 ? 255 : 0, j == 1 ? 255 : 0, j == 2 ? 255 : 0));
       strip.show();
-      delay(500);
+      delay(100);
     }
-    delay(500);
+    delay(100);
   }
   strip.clear();
+  strip.show();
   delay(100);
   Serial.println(": done");
 }
@@ -118,23 +119,13 @@ void ledTest() {
 }
 
 void showStepLed(int index) {
-  Serial.print("show led: ");
-  Serial.println(index);
   _ledMux.channel(index);
 }
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void renderStepAndIncrement() {
-  Serial.print("rendering step ");
-  Serial.println(_step);
   showStepLed(_step);
-  strip.clear();
-  strip.setPixelColor(_step, strip.Color(0, 255, 255));
-  strip.show();
-  sounds[_step].play(AudioSampleKick);
-
-
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
 }
@@ -142,11 +133,6 @@ void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
   bool buttonValue = digitalRead(BUTTON_PIN);
   _on = !buttonValue;
-
-  //  Serial.print("poti: ");
-  //  Serial.print(potiValue);
-  //  Serial.print(", button: ");
-  //  Serial.println(buttonValue);
 
   _bpm = map(potiValue, 0, 1024, 600, 20);
   for (auto i = 0; i < 16; i++) {
@@ -157,11 +143,15 @@ void readSensors() {
     hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
   }
 
-  //  for (auto i = 0; i < NUMSTEPS * 4; i++) {
-  //    Serial.print(hallValues[i]);
-  //    Serial.print(",");
-  //  }
-  //  Serial.println();
+  // _hallAMux.channel(1);
+  // delay(100);
+  // Serial.println(analogRead(HALL_A_SIG_PIN));
+
+  for (auto i = 0; i < NUMSTEPS * 4; i++) {
+    Serial.print(hallValues[i]);
+    Serial.print(",");
+  }
+  Serial.println();
 }
 void printHallValues() {
   for (auto i = 0; i < 32; i++) {
@@ -219,63 +209,41 @@ void setup() {
     Serial.println("Failed to find MPU6050 chip");
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+
+  neoPixelTest();
 }
 
 void loop() {
   auto timestamp = millis();
 
-  //  ledTest();
-  //  neoPixelTest();
-  //  audioTest();
-
+  // distance for velocity modulation
   VL53L0X_RangingMeasurementData_t measure;
   lox.rangingTest(&measure, false);  // pass in 'true' to get debug data printout!
-                                     // TODO: map measurement to velocity
+  if (measure.RangeStatus != 4) {    // phase failures have incorrect data
+    if (measure.RangeMilliMeter > 300) {
+      _velocity = 127;
+    } else {
+      _velocity = 127 - map(measure.RangeDMaxMilliMeter, 0, 300, 127, 0);
+    }
+  }
 
-
+  // gyroscope for speed modulation
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
-  Serial.print(g.gyro.x);
+  // Serial.print(g.gyro.x);
   // TODO: map gyro value to speed modulation
 
 
 
-  if (measure.RangeStatus != 4) {  // phase failures have incorrect data
-    Serial.print("Distance (mm): ");
-    Serial.println(measure.RangeMilliMeter);
-  } else {
-    Serial.println(" out of range ");
-  }
-
   readSensors();
-  printHallValues();
+  String message = "";
+  message = String(hallValues[0]) + ", " + String(hallValues[1]) += ", " + String(hallValues[2]) + ", " + String(hallValues[3]);
+  // Serial.println(hallValues[5]);
+
+  // printHallValues();
   if (_on) {
     if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
       renderStepAndIncrement();
     }
   }
-
-
-
-  //  auto input = analogRead(pins[step]);
-  //  if (input < 128) { // cube not placed
-  //    strip.setPixelColor(step, strip.Color(255, 255, 255));
-  //  } else if (input < 256) { // cube rotated to kick
-  //    strip.setPixelColor(step, strip.Color(255, 0, 0));
-  //    sounds[step].play(AudioSampleKick);
-  //  } else if (input < 512) { // cube rotated to snare
-  //    strip.setPixelColor(step, strip.Color(0, 255, 0));
-  //    sounds[step].play(AudioSampleSnare);
-  //  } else if (input < 768) { // cube rotated to hihats
-  //    strip.setPixelColor(step, strip.Color(0, 0, 255));
-  //    sounds[step].play(AudioSampleHihat);
-  //  } else {// cube rotated to clap
-  //    strip.setPixelColor(step, strip.Color(255, 0, 255));
-  //    sounds[step].play(AudioSampleTomtom);
-  //  }
-  //  strip.show();
-
-
-  // move to the next step and wait for the next tick
-  //  delay();
 }
