@@ -1,4 +1,5 @@
 #define NUMSTEPS 8
+#define NUMVOICES 8
 #define NEOPIXEL_PIN 39
 #define POTI_PIN 40
 #define BUTTON_PIN 41
