@@ -11,7 +11,7 @@
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
 #include "Parameter.h"
 #include "config.h"
-#include "testVoice.h"
+#include "voice.h"
 
 #include "AudioSampleSnare.h"   // http://www.freesound.org/people/KEVOY/sounds/82583/
 #include "AudioSampleTomtom.h"  // http://www.freesound.org/people/zgump/sounds/86334/
@@ -40,15 +40,15 @@ AudioMixer4 mainMixer;
 AudioOutputI2S headphones;
 AudioOutputAnalog dac;
 
-AudioConnection c0(_voices[0]._playMem, 0, firstMixer, 0);
-AudioConnection c1(_voices[1]._playMem, 0, firstMixer, 1);
-AudioConnection c2(_voices[2]._playMem, 0, firstMixer, 2);
-AudioConnection c3(_voices[3]._playMem, 0, firstMixer, 3);
+AudioConnection c0(_voices[0]._amp, 0, firstMixer, 0);
+AudioConnection c1(_voices[1]._amp, 0, firstMixer, 1);
+AudioConnection c2(_voices[2]._amp, 0, firstMixer, 2);
+AudioConnection c3(_voices[3]._amp, 0, firstMixer, 3);
 
-AudioConnection c4(_voices[4]._playMem, 0, secondMixer, 0);
-AudioConnection c5(_voices[5]._playMem, 0, secondMixer, 1);
-AudioConnection c6(_voices[6]._playMem, 0, secondMixer, 2);
-AudioConnection c7(_voices[7]._playMem, 0, secondMixer, 3);
+AudioConnection c4(_voices[4]._amp, 0, secondMixer, 0);
+AudioConnection c5(_voices[5]._amp, 0, secondMixer, 1);
+AudioConnection c6(_voices[6]._amp, 0, secondMixer, 2);
+AudioConnection c7(_voices[7]._amp, 0, secondMixer, 3);
 
 AudioConnection c8(firstMixer, 0, mainMixer, 0);
 AudioConnection c9(secondMixer, 0, mainMixer, 1);
@@ -179,7 +179,6 @@ void printHallValues() {
 }
 
 void onNoteOn(byte channel, byte note, byte velocity) {
-  Serial.println("got note on");
   _currentVoice = (_currentVoice + 1) % NUMVOICES;
   _voices[_currentVoice].noteOn(note);
 }
@@ -188,6 +187,7 @@ void onNoteOff(byte channel, byte note, byte velocity) {
 
 void setup() {
   Serial.begin(115200);
+  Wire.setClock(400000);  // Set I2C to 400 kHz
 
   pinMode(LED_SIG_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
