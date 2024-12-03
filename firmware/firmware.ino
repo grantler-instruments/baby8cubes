@@ -29,6 +29,7 @@ CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_P
 
 
 int _bpm = 120;
+int _bpmModulator = 0;
 int _step = 0;
 int _velocity = 127;
 int _distance = 0;
@@ -46,6 +47,8 @@ AudioOutputI2S _headphones;
 AudioOutputAnalog _dac;
 AudioEffectBitcrusher _bitcrusher;
 AudioFilterBiquad _filter;
+AudioEffectFreeverb _freeverb;
+AudioEffectReverb _reverb;
 
 
 AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
@@ -147,11 +150,17 @@ void ledTest() {
 void showStepLed(int index) {
   _ledMux.channel(index);
 }
+void showStepColor(int index, int red, int green, int blue) {
+  strip.clear();
+  strip.setPixelColor(index, strip.Color(red, green, blue));
+  strip.show();
+}
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void renderStepAndIncrement() {
   showStepLed(_step);
+  showStepColor(_step, 255, 0, 0);
   onNoteOn(1, 60, 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
@@ -272,7 +281,7 @@ void setup() {
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
 
-  // neoPixelTest();
+  neoPixelTest();
 }
 
 void loop() {
@@ -284,8 +293,6 @@ void loop() {
   VL53L0X_RangingMeasurementData_t measure;
   lox.rangingTest(&measure, false);
   if (measure.RangeStatus != 4) {
-
-
     updateDistanceBuffer(measure.RangeMilliMeter);
     checkJumpy();
 
@@ -311,16 +318,22 @@ void loop() {
   // Serial.print(", ");
   // Serial.println(g.orientation.z);
 
-  Serial.print(a.acceleration.x);
-  Serial.print(", ");
-  Serial.print(a.acceleration.y);
-  Serial.print(", ");
-  Serial.println(a.acceleration.z);
+  // Serial.print(a.acceleration.x);
+  // Serial.print(", ");
+  // Serial.print(a.acceleration.y);
+  // Serial.print(", ");
+  // Serial.println(a.acceleration.z);
 
   if (a.acceleration.x < 0.5) {
     _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
+    _freeverb.roomsize(map(a.acceleration.x, 0.5, -5, 0, 1));
+    _freeverb.damping(map(a.acceleration.x, 0.5, -5, 0, 1));
+    _reverb.reverbTime(map(a.acceleration.x, 0.5, -5, 0, 5));
   } else {
     _filter.setLowpass(0, 22000, 0.5);
+    _freeverb.roomsize(0);
+    _freeverb.damping(0);
+    _reverb.reverbTime(0);
   }
 
   if (a.acceleration.x > 0.5) {
@@ -331,18 +344,17 @@ void loop() {
     _bitcrusher.sampleRate(44100);
   }
 
-   if (a.acceleration.x < 0.5) {
+  if (a.acceleration.x < 0.5) {
     _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
   } else {
     _filter.setLowpass(0, 22000, 0.5);
   }
 
-  if (a.acceleration.y > -0.7) {
+  if (a.acceleration.y < -0.7) {
+    _bpmModulator = -map(a.acceleration.y, -0.7, -3, 0, 80);
   } else {
-
+    _bpmModulator = map(a.acceleration.y, 0.7, 3, 0, 80);
   }
-
-
 
   readSensors();
   String message = "";
@@ -351,7 +363,7 @@ void loop() {
 
   // printHallValues();
   if (_on) {
-    if (timestamp - _timestamp > (60.0 * 1000 / _bpm)) {
+    if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
       renderStepAndIncrement();
     }
   }
