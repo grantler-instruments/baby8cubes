@@ -13,10 +13,14 @@
 #include "config.h"
 #include "voice.h"
 
-#include "AudioSampleSnare.h"   // http://www.freesound.org/people/KEVOY/sounds/82583/
-#include "AudioSampleTomtom.h"  // http://www.freesound.org/people/zgump/sounds/86334/
-#include "AudioSampleHihat.h"   // http://www.freesound.org/people/mhc/sounds/102790/
-#include "AudioSampleKick.h"    // http://www.freesound.org/people/DWSD/sounds/171104/
+// http://www.freesound.org/people/KEVOY/sounds/82583/
+#include "AudioSampleSnare.h"
+// http://www.freesound.org/people/zgump/sounds/86334/
+#include "AudioSampleTomtom.h"
+// http://www.freesound.org/people/mhc/sounds/102790/
+#include "AudioSampleHihat.h"
+// http://www.freesound.org/people/DWSD/sounds/171104/
+#include "AudioSampleKick.h"
 
 
 CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
@@ -34,28 +38,36 @@ int hallValues[NUMSTEPS * 4];
 
 Voice _voices[NUMVOICES];
 int _currentVoice = 0;
-AudioMixer4 firstMixer;
-AudioMixer4 secondMixer;
-AudioMixer4 mainMixer;
-AudioOutputI2S headphones;
-AudioOutputAnalog dac;
+AudioMixer4 _firstMixer;
+AudioMixer4 _secondMixer;
+AudioMixer4 _mainMixer;
+AudioAmplifier _mainAmp;
+AudioOutputI2S _headphones;
+AudioOutputAnalog _dac;
+AudioEffectBitcrusher _bitcrusher;
+AudioFilterBiquad _filter;
 
-AudioConnection c0(_voices[0]._amp, 0, firstMixer, 0);
-AudioConnection c1(_voices[1]._amp, 0, firstMixer, 1);
-AudioConnection c2(_voices[2]._amp, 0, firstMixer, 2);
-AudioConnection c3(_voices[3]._amp, 0, firstMixer, 3);
 
-AudioConnection c4(_voices[4]._amp, 0, secondMixer, 0);
-AudioConnection c5(_voices[5]._amp, 0, secondMixer, 1);
-AudioConnection c6(_voices[6]._amp, 0, secondMixer, 2);
-AudioConnection c7(_voices[7]._amp, 0, secondMixer, 3);
+AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
+AudioConnection c1(_voices[1]._amp, 0, _firstMixer, 1);
+AudioConnection c2(_voices[2]._amp, 0, _firstMixer, 2);
+AudioConnection c3(_voices[3]._amp, 0, _firstMixer, 3);
 
-AudioConnection c8(firstMixer, 0, mainMixer, 0);
-AudioConnection c9(secondMixer, 0, mainMixer, 1);
+AudioConnection c4(_voices[4]._amp, 0, _secondMixer, 0);
+AudioConnection c5(_voices[5]._amp, 0, _secondMixer, 1);
+AudioConnection c6(_voices[6]._amp, 0, _secondMixer, 2);
+AudioConnection c7(_voices[7]._amp, 0, _secondMixer, 3);
 
-AudioConnection c10(mainMixer, 0, headphones, 0);
-AudioConnection c11(mainMixer, 0, headphones, 1);
-AudioConnection c12(mainMixer, 0, dac, 0);
+AudioConnection c8(_firstMixer, 0, _mainMixer, 0);
+AudioConnection c9(_secondMixer, 0, _mainMixer, 1);
+
+AudioConnection c10(_mainMixer, 0, _filter, 0);
+AudioConnection c11(_filter, _bitcrusher);
+AudioConnection c12(_bitcrusher, _mainAmp);
+
+AudioConnection c13(_mainAmp, 0, _headphones, 0);
+AudioConnection c14(_mainAmp, 0, _headphones, 1);
+AudioConnection c15(_mainAmp, 0, _dac, 0);
 
 AudioControlSGTL5000 audioShield;
 
@@ -140,6 +152,7 @@ void hideStepLed() {
 }
 void renderStepAndIncrement() {
   showStepLed(_step);
+  onNoteOn(1, 60, 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
 }
@@ -184,6 +197,20 @@ void onNoteOn(byte channel, byte note, byte velocity) {
 }
 void onNoteOff(byte channel, byte note, byte velocity) {
 }
+void onControlChange(byte channel, byte controller, byte value) {
+  switch (controller) {
+    case 1:
+      {
+        _filter.setLowpass(0, map(value, 0, 127, 100, 20000), 0.5);
+        break;
+      }
+    case 2:
+      {
+        _bitcrusher.bits(map(value, 0, 127, 0, 16));
+        break;
+      }
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -202,6 +229,7 @@ void setup() {
   Serial.println("setup midi engine");
   usbMIDI.setHandleNoteOff(onNoteOff);
   usbMIDI.setHandleNoteOn(onNoteOn);
+  usbMIDI.setHandleControlChange(onControlChange);
 
   // audio
   Serial.println("setup audio engine");
@@ -211,13 +239,17 @@ void setup() {
   audioShield.volume(0.5);
 
   for (auto i = 0; i < 4; i++) {
-    firstMixer.gain(i, 0.4);
-    secondMixer.gain(i, 0.4);
+    _firstMixer.gain(i, 0.4);
+    _secondMixer.gain(i, 0.4);
   }
 
 
-  mainMixer.gain(0, 0.5);
-  mainMixer.gain(1, 0.5);
+  _filter.setLowpass(0, 20000, 0.5);
+  _bitcrusher.bits(12);
+  _bitcrusher.sampleRate(44100);
+  _mainMixer.gain(0, 0.5);
+  _mainMixer.gain(1, 0.5);
+  _mainAmp.gain(1);
   // audioTest();
 
 
@@ -248,8 +280,6 @@ void loop() {
   usbMIDI.read();
   // Serial.println("loop");
 
-  return;
-
   // distance for velocity modulation
   VL53L0X_RangingMeasurementData_t measure;
   lox.rangingTest(&measure, false);
@@ -259,16 +289,16 @@ void loop() {
     updateDistanceBuffer(measure.RangeMilliMeter);
     checkJumpy();
 
-    if (isJumpy) {
-      // Serial.println("Distance measurements are jumpy!");
-    } else {
-      if (measure.RangeMilliMeter > 100) {
-        _velocity = 127;
-      } else {
-        _velocity = 127 - map(measure.RangeMilliMeter, 0, 100, 127, 0);
-      }
-      Serial.println(_velocity);
-    }
+    //   if (isJumpy) {
+    //     // Serial.println("Distance measurements are jumpy!");
+    //   } else {
+    //     if (measure.RangeMilliMeter > 100) {
+    //       _velocity = 127;
+    //     } else {
+    //       _velocity = 127 - map(measure.RangeMilliMeter, 0, 100, 127, 0);
+    //     }
+    //     Serial.println(_velocity);
+    //   }
   }
 
 
@@ -281,7 +311,36 @@ void loop() {
   // Serial.print(", ");
   // Serial.println(g.orientation.z);
 
-  // TODO: map gyro value to speed modulation
+  Serial.print(a.acceleration.x);
+  Serial.print(", ");
+  Serial.print(a.acceleration.y);
+  Serial.print(", ");
+  Serial.println(a.acceleration.z);
+
+  if (a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
+  } else {
+    _filter.setLowpass(0, 22000, 0.5);
+  }
+
+  if (a.acceleration.x > 0.5) {
+    _bitcrusher.bits(16 - (int)(map(a.acceleration.x, 0.5, 5, 0, 16)));
+    _bitcrusher.sampleRate(44100 - (int)(map(a.acceleration.x, 0.5, 5, 0, 44100)));
+  } else {
+    _bitcrusher.bits(16);
+    _bitcrusher.sampleRate(44100);
+  }
+
+   if (a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
+  } else {
+    _filter.setLowpass(0, 22000, 0.5);
+  }
+
+  if (a.acceleration.y > -0.7) {
+  } else {
+
+  }
 
 
 
