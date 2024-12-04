@@ -43,6 +43,9 @@ int hallValues[NUMSTEPS * 4];
 Voice _voices[NUMVOICES];
 int _currentVoice = 0;
 
+AudioControlSGTL5000 _audioShield;
+AudioOutputUSB _usbOutput;
+
 AudioMixer4 _firstMixer;
 AudioMixer4 _secondMixer;
 AudioMixer4 _mainMixer;
@@ -76,7 +79,8 @@ AudioConnection c13(_mainAmp, 0, _headphones, 0);
 AudioConnection c14(_mainAmp, 0, _headphones, 1);
 AudioConnection c15(_mainAmp, 0, _dac, 0);
 
-AudioControlSGTL5000 _audioShield;
+AudioConnection _mainAmpToUsbL(_mainAmp, 0, _usbOutput, 0);  // left channel
+AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
@@ -166,7 +170,7 @@ void renderStepAndIncrement() {
   showStepLed(_step);
   showStepColor(_step, 255, 0, 0);
   onNoteOn(1, 60, 127);
-  _mainAmp.gain(((float)(_velocity))/127);
+  _mainAmp.gain(((float)(_velocity)) / 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
 }
