@@ -1,5 +1,8 @@
 // !!!! select usb type: serial + audio + midi
 
+
+// TODO: seesaw mode
+
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -39,6 +42,7 @@ int hallValues[NUMSTEPS * 4];
 
 Voice _voices[NUMVOICES];
 int _currentVoice = 0;
+
 AudioMixer4 _firstMixer;
 AudioMixer4 _secondMixer;
 AudioMixer4 _mainMixer;
@@ -72,7 +76,7 @@ AudioConnection c13(_mainAmp, 0, _headphones, 0);
 AudioConnection c14(_mainAmp, 0, _headphones, 1);
 AudioConnection c15(_mainAmp, 0, _dac, 0);
 
-AudioControlSGTL5000 audioShield;
+AudioControlSGTL5000 _audioShield;
 
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
@@ -162,6 +166,7 @@ void renderStepAndIncrement() {
   showStepLed(_step);
   showStepColor(_step, 255, 0, 0);
   onNoteOn(1, 60, 127);
+  _mainAmp.gain(((float)(_velocity))/127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
 }
@@ -244,8 +249,8 @@ void setup() {
   Serial.println("setup audio engine");
 
   AudioMemory(128);
-  audioShield.enable();
-  audioShield.volume(0.5);
+  _audioShield.enable();
+  _audioShield.volume(1);
 
   for (auto i = 0; i < 4; i++) {
     _firstMixer.gain(i, 0.4);
@@ -294,16 +299,16 @@ void loop() {
   lox.rangingTest(&measure, false);
   if (measure.RangeStatus != 4) {
     updateDistanceBuffer(measure.RangeMilliMeter);
-    checkJumpy();
-
+    if (measure.RangeMilliMeter > 100) {
+      _velocity = 127;
+    } else {
+      _velocity = 127 - map(measure.RangeMilliMeter, 30, 100, 127, 0);
+    }
+    Serial.println(_velocity);
     //   if (isJumpy) {
     //     // Serial.println("Distance measurements are jumpy!");
     //   } else {
-    //     if (measure.RangeMilliMeter > 100) {
-    //       _velocity = 127;
-    //     } else {
-    //       _velocity = 127 - map(measure.RangeMilliMeter, 0, 100, 127, 0);
-    //     }
+
     //     Serial.println(_velocity);
     //   }
   }
@@ -345,7 +350,7 @@ void loop() {
   }
 
   if (a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
+    _filter.setLowpass(0, 5000 - map(a.acceleration.x, 0.5, -5, 0, 5000));
   } else {
     _filter.setLowpass(0, 22000, 0.5);
   }
