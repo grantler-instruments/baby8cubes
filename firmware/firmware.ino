@@ -167,9 +167,13 @@ void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void renderStepAndIncrement() {
+  // TODO: only turn off note of note of current step
+  usbMIDI.sendNoteOff(60, 0, 1);
+
   showStepLed(_step);
   showStepColor(_step, 255, 0, 0);
   onNoteOn(1, 60, 127);
+  usbMIDI.sendNoteOn(60, _velocity, 1);yy
   _mainAmp.gain(((float)(_velocity)) / 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
@@ -219,7 +223,7 @@ void onControlChange(byte channel, byte controller, byte value) {
   switch (controller) {
     case 1:
       {
-        _filter.setLowpass(0, map(value, 0, 127, 100, 20000), 0.5);
+        _filter.setLowpass(0, map(value, 0, 127, 100, 20000), 0.8);
         break;
       }
     case 2:
@@ -334,7 +338,7 @@ void loop() {
   // Serial.println(a.acceleration.z);
 
   if (a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900));
+    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
     _freeverb.roomsize(map(a.acceleration.x, 0.5, -5, 0, 1));
     _freeverb.damping(map(a.acceleration.x, 0.5, -5, 0, 1));
     _reverb.reverbTime(map(a.acceleration.x, 0.5, -5, 0, 5));
