@@ -191,13 +191,15 @@ void readSensors() {
   _on = !buttonValue;
 
   _bpm = map(potiValue, 0, 1024, 600, 20);
-  for (auto i = 0; i < 16; i++) {
-    _hallAMux.channel(i);
-    _hallBMux.channel(i);
-    delay(2);
-    hallValues[i] = analogRead(HALL_A_SIG_PIN);
-    hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
-  }
+
+
+  // for (auto i = 0; i < 16; i++) {
+  //   _hallAMux.channel(i);
+  //   _hallBMux.channel(i);
+  //   delay(2);
+  //   hallValues[i] = analogRead(HALL_A_SIG_PIN);
+  //   hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
+  // }
 
   // _hallAMux.channel(1);
   // delay(100);
