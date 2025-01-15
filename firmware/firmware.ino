@@ -133,14 +133,21 @@ void audioTest() {
 void neoPixelTest() {
   Serial.print("started neopixel test");
   for (auto i = 0; i < NUMSTEPS; i++) {
-    for (auto j = 0; j < 3; j++) {
-      strip.setPixelColor(i, strip.Color(j == 0 ? 255 : 0, j == 1 ? 255 : 0, j == 2 ? 255 : 0));
-      strip.show();
-      delay(100);
-    }
-    delay(100);
+    strip.clear();
+    strip.setPixelColor(i, strip.Color(255, 0, 0));
+    strip.show();
+    delay(500);
+    strip.clear();
+    strip.setPixelColor(i, strip.Color(0, 255, 0));
+    strip.show();
+    delay(500);
+    strip.clear();
+    strip.setPixelColor(i, strip.Color(0, 0, 255));
+    strip.show();
+    delay(500);
+    strip.clear();
   }
-  strip.clear();
+  // strip.setPixelColor(0, strip.Color(255, 0, 0));
   strip.show();
   delay(100);
   Serial.println(": done");
@@ -173,7 +180,7 @@ void renderStepAndIncrement() {
   showStepLed(_step);
   showStepColor(_step, 255, 0, 0);
   onNoteOn(1, 60, 127);
-  usbMIDI.sendNoteOn(60, _velocity, 1);yy
+  usbMIDI.sendNoteOn(60, _velocity, 1);
   _mainAmp.gain(((float)(_velocity)) / 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
@@ -276,8 +283,9 @@ void setup() {
 
 
   // led
-  // strip.begin();
-  // strip.show();
+  strip.begin();
+  strip.setBrightness(255);  // Set BRIGHTNESS to about 1/5 (max = 255)
+  strip.show();
 
   // set led high
   digitalWrite(LED_SIG_PIN, HIGH);
@@ -312,7 +320,7 @@ void loop() {
     } else {
       _velocity = 127 - map(measure.RangeMilliMeter, 30, 100, 127, 0);
     }
-    Serial.println(_velocity);
+    // Serial.println(_velocity);
     //   if (isJumpy) {
     //     // Serial.println("Distance measurements are jumpy!");
     //   } else {
@@ -322,20 +330,9 @@ void loop() {
   }
 
 
-  // gyroscope for speed modulation
+  // acceleration for speed modulation
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
-  // Serial.print(g.orientation.x);
-  // Serial.print(", ");
-  // Serial.print(g.orientation.y);
-  // Serial.print(", ");
-  // Serial.println(g.orientation.z);
-
-  // Serial.print(a.acceleration.x);
-  // Serial.print(", ");
-  // Serial.print(a.acceleration.y);
-  // Serial.print(", ");
-  // Serial.println(a.acceleration.z);
 
   if (a.acceleration.x < 0.5) {
     _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
@@ -371,8 +368,16 @@ void loop() {
 
   readSensors();
   String message = "";
-  message = String(hallValues[0]) + ", " + String(hallValues[1]) += ", " + String(hallValues[2]) + ", " + String(hallValues[3]);
+  message = String(hallValues[0]);  // + ", " + String(hallValues[1]) += ", " + String(hallValues[2]) + ", " + String(hallValues[3]);
   // Serial.println(hallValues[5]);
+  // Serial.println(message);
+  _hallAMux.channel(0);
+  _hallBMux.channel(0);
+
+  delay(2);
+  Serial.println(analogRead(HALL_A_SIG_PIN));
+  Serial.println(analogRead(HALL_B_SIG_PIN));
+  delay(500);
 
   // printHallValues();
   if (_on) {

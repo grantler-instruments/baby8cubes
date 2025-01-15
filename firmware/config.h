@@ -20,5 +20,9 @@
 #define HALL_B_SELECT_2_PIN 34
 #define HALL_B_SELECT_3_PIN 35
 
-#define HALL_A_SIG_PIN 6 //20
-#define HALL_B_SIG_PIN 7 //21
+#define HALL_A_SIG_PIN 38
+#define HALL_B_SIG_PIN 37
+
+#define CC_ACCELERATION_X 10
+#define CC_ACCELERATION_Y 20
+
