@@ -1,8 +1,5 @@
 // !!!! select usb type: serial + audio + midi
 
-
-// TODO: seesaw mode
-
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -49,6 +46,7 @@ AudioOutputUSB _usbOutput;
 AudioMixer4 _firstMixer;
 AudioMixer4 _secondMixer;
 AudioMixer4 _mainMixer;
+
 AudioAmplifier _mainAmp;
 AudioOutputI2S _headphones;
 AudioOutputAnalog _dac;
@@ -56,6 +54,10 @@ AudioEffectBitcrusher _bitcrusher;
 AudioFilterBiquad _filter;
 AudioEffectFreeverb _freeverb;
 AudioEffectReverb _reverb;
+AudioEffectDelay _delay;
+AudioMixer4 _delayMixer;
+
+
 
 
 AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
@@ -82,6 +84,13 @@ AudioConnection c15(_mainAmp, 0, _dac, 0);
 AudioConnection _mainAmpToUsbL(_mainAmp, 0, _usbOutput, 0);  // left channel
 AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 
+// AudioConnection bitcrusherToDelay(_bitcrusher, _delay);
+// AudioConnection delay0ToMixer(_delay, 0, _delayMixer, 0);
+// AudioConnection delay1ToMixer(_delay, 1, _delayMixer, 1);
+// AudioConnection delay2ToMixer(_delay, 2, _delayMixer, 2);
+// AudioConnection delay3ToMixer(_delay, 3, _delayMixer, 3);
+// TODO: feedback some signal to the delay line, add a controllable amp for that
+
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
@@ -91,6 +100,8 @@ unsigned long _timestamp = 0;
 
 ParameterGroup _parameters;
 Parameter<bool> _on;
+Parameter<bool> _seasawMode;
+
 
 
 
@@ -188,7 +199,7 @@ void renderStepAndIncrement() {
 void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
   bool buttonValue = digitalRead(BUTTON_PIN);
-  _on = !buttonValue;
+  _seasawMode = !buttonValue;
 
   _bpm = map(potiValue, 0, 1024, 600, 20);
 
@@ -254,16 +265,18 @@ void setup() {
     hallValues[i] = 0;
   }
 
-  _on.setup("on", false);
+  _on.setup("on", true);
+  _seasawMode.setup("seasaw", false);
 
   // midi
-  Serial.println("setup midi engine");
+  Serial.print("setup midi engine ... ");
   usbMIDI.setHandleNoteOff(onNoteOff);
   usbMIDI.setHandleNoteOn(onNoteOn);
   usbMIDI.setHandleControlChange(onControlChange);
+  Serial.println("done");
 
   // audio
-  Serial.println("setup audio engine");
+  Serial.print("setup audio engine ... ");
 
   AudioMemory(128);
   _audioShield.enable();
@@ -282,27 +295,36 @@ void setup() {
   _mainMixer.gain(1, 0.5);
   _mainAmp.gain(1);
   // audioTest();
+  Serial.println("done");
+
 
 
   // led
+  Serial.print("setup leds ... ");
   strip.begin();
   strip.setBrightness(255);  // Set BRIGHTNESS to about 1/5 (max = 255)
   strip.show();
+  Serial.println("done");
+
 
   // set led high
   digitalWrite(LED_SIG_PIN, HIGH);
 
-  Serial.println("setup distance sensor");
+  Serial.print("setup distance sensor ... ");
   if (!lox.begin()) {
     Serial.println(F("Failed to boot VL53L0X"));
   }
+  Serial.println("done");
+
 
   delay(1000);
-  Serial.println("setup motion sensor");
+  Serial.print("setup motion sensor ... ");
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  Serial.println("done");
+
 
   neoPixelTest();
 }
@@ -322,13 +344,6 @@ void loop() {
     } else {
       _velocity = 127 - map(measure.RangeMilliMeter, 30, 100, 127, 0);
     }
-    // Serial.println(_velocity);
-    //   if (isJumpy) {
-    //     // Serial.println("Distance measurements are jumpy!");
-    //   } else {
-
-    //     Serial.println(_velocity);
-    //   }
   }
 
 
@@ -368,23 +383,21 @@ void loop() {
     _bpmModulator = map(a.acceleration.y, 0.7, 3, 0, 80);
   }
 
-  readSensors();
-  String message = "";
-  message = String(hallValues[0]);  // + ", " + String(hallValues[1]) += ", " + String(hallValues[2]) + ", " + String(hallValues[3]);
-  // Serial.println(hallValues[5]);
-  // Serial.println(message);
+  // readSensors();
   _hallAMux.channel(0);
-  _hallBMux.channel(0);
-
-  delay(2);
   Serial.println(analogRead(HALL_A_SIG_PIN));
-  Serial.println(analogRead(HALL_B_SIG_PIN));
-  delay(500);
+  delay(50);
 
-  // printHallValues();
   if (_on) {
-    if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
-      renderStepAndIncrement();
+    if (_seasawMode) {
+      // TODO: physcis
+      if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
+        renderStepAndIncrement();
+      }
+    } else {
+      if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
+        renderStepAndIncrement();
+      }
     }
   }
 }
