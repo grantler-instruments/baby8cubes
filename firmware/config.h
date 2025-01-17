@@ -20,8 +20,8 @@
 #define HALL_B_SELECT_2_PIN 34
 #define HALL_B_SELECT_3_PIN 35
 
-#define HALL_A_SIG_PIN 9//38
-#define HALL_B_SIG_PIN 8//37
+#define HALL_A_SIG_PIN 9  //A9
+#define HALL_B_SIG_PIN 8  //A8
 
 #define CC_ACCELERATION_X 10
 #define CC_ACCELERATION_Y 20

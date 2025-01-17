@@ -11,6 +11,7 @@
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
 #include "Parameter.h"
 #include "config.h"
+#include "helpers.h"
 #include "voice.h"
 
 // http://www.freesound.org/people/KEVOY/sounds/82583/
@@ -34,7 +35,7 @@ int _step = 0;
 int _velocity = 127;
 int _distance = 0;
 
-int hallValues[NUMSTEPS * 4];
+bool _hallValues[NUMSTEPS * 4];
 
 
 Voice _voices[NUMVOICES];
@@ -101,6 +102,10 @@ unsigned long _timestamp = 0;
 ParameterGroup _parameters;
 Parameter<bool> _on;
 Parameter<bool> _seasawMode;
+
+VL53L0X_RangingMeasurementData_t _measure;
+sensors_event_t _a, _g, _temp;
+
 
 
 
@@ -200,45 +205,28 @@ void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
   bool buttonValue = digitalRead(BUTTON_PIN);
   _seasawMode = !buttonValue;
-
   _bpm = map(potiValue, 0, 1024, 600, 20);
+  mpu.getEvent(&_a, &_g, &_temp);
+  lox.rangingTest(&_measure, false);
 
 
-  // for (auto i = 0; i < 16; i++) {
-  //   _hallAMux.channel(i);
-  //   _hallBMux.channel(i);
-  //   delay(2);
-  //   hallValues[i] = analogRead(HALL_A_SIG_PIN);
-  //   hallValues[i + 16] = analogRead(HALL_B_SIG_PIN);
-  // }
+  // TODO: detect if a step has changed, if so, show new color for 1s
 
-  // _hallAMux.channel(1);
-  // delay(100);
-  // Serial.println(analogRead(HALL_A_SIG_PIN));
-
-  // for (auto i = 0; i < NUMSTEPS * 4; i++) {
-  //   Serial.print(hallValues[i]);
-  //   Serial.print(",");
-  // }
-  // Serial.println();
-}
-void printHallValues() {
-  for (auto i = 0; i < 32; i++) {
-    Serial.print(hallValues[i]);
-    if (i < 31) {
-      Serial.print(", ");
-    } else {
-      Serial.println();
-    }
+  for (auto i = 0; i < 16; i++) {
+    _hallAMux.channel(i);
+    _hallBMux.channel(i);
+    _hallValues[i] = (analogRead(HALL_A_SIG_PIN) < 64) ? 1 : 0;
+    _hallValues[i + 16] = (analogRead(HALL_B_SIG_PIN) < 64) ? 1 : 0;
   }
 }
+
+
 
 void onNoteOn(byte channel, byte note, byte velocity) {
   _currentVoice = (_currentVoice + 1) % NUMVOICES;
   _voices[_currentVoice].noteOn(note);
 }
-void onNoteOff(byte channel, byte note, byte velocity) {
-}
+void onNoteOff(byte channel, byte note, byte velocity) {}
 void onControlChange(byte channel, byte controller, byte value) {
   switch (controller) {
     case 1:
@@ -262,7 +250,7 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   for (auto i = 0; i < NUMSTEPS * 4; i++) {
-    hallValues[i] = 0;
+    _hallValues[i] = 0;
   }
 
   _on.setup("on", true);
@@ -332,30 +320,23 @@ void setup() {
 void loop() {
   auto timestamp = millis();
   usbMIDI.read();
-  // Serial.println("loop");
+  readSensors();
+  printHallValues(_hallValues);
 
-  // distance for velocity modulation
-  VL53L0X_RangingMeasurementData_t measure;
-  lox.rangingTest(&measure, false);
-  if (measure.RangeStatus != 4) {
-    updateDistanceBuffer(measure.RangeMilliMeter);
-    if (measure.RangeMilliMeter > 100) {
+  if (_measure.RangeStatus != 4) {
+    updateDistanceBuffer(_measure.RangeMilliMeter);
+    if (_measure.RangeMilliMeter > 100) {
       _velocity = 127;
     } else {
-      _velocity = 127 - map(measure.RangeMilliMeter, 30, 100, 127, 0);
+      _velocity = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
     }
   }
 
-
-  // acceleration for speed modulation
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  if (a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 22000 - map(a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
-    _freeverb.roomsize(map(a.acceleration.x, 0.5, -5, 0, 1));
-    _freeverb.damping(map(a.acceleration.x, 0.5, -5, 0, 1));
-    _reverb.reverbTime(map(a.acceleration.x, 0.5, -5, 0, 5));
+  if (_a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 22000 - map(_a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
+    _freeverb.roomsize(map(_a.acceleration.x, 0.5, -5, 0, 1));
+    _freeverb.damping(map(_a.acceleration.x, 0.5, -5, 0, 1));
+    _reverb.reverbTime(map(_a.acceleration.x, 0.5, -5, 0, 5));
   } else {
     _filter.setLowpass(0, 22000, 0.5);
     _freeverb.roomsize(0);
@@ -363,30 +344,27 @@ void loop() {
     _reverb.reverbTime(0);
   }
 
-  if (a.acceleration.x > 0.5) {
-    _bitcrusher.bits(16 - (int)(map(a.acceleration.x, 0.5, 5, 0, 16)));
-    _bitcrusher.sampleRate(44100 - (int)(map(a.acceleration.x, 0.5, 5, 0, 44100)));
+  if (_a.acceleration.x > 0.5) {
+    _bitcrusher.bits(16 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 16)));
+    _bitcrusher.sampleRate(44100 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 44100)));
   } else {
     _bitcrusher.bits(16);
     _bitcrusher.sampleRate(44100);
   }
 
-  if (a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 5000 - map(a.acceleration.x, 0.5, -5, 0, 5000));
+  if (_a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 5000 - map(_a.acceleration.x, 0.5, -5, 0, 5000));
   } else {
     _filter.setLowpass(0, 22000, 0.5);
   }
 
-  if (a.acceleration.y < -0.7) {
-    _bpmModulator = -map(a.acceleration.y, -0.7, -3, 0, 80);
+  if (_a.acceleration.y < -0.7) {
+    _bpmModulator = -map(_a.acceleration.y, -0.7, -3, 0, 80);
   } else {
-    _bpmModulator = map(a.acceleration.y, 0.7, 3, 0, 80);
+    _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
   }
 
-  // readSensors();
-  _hallAMux.channel(0);
-  Serial.println(analogRead(HALL_A_SIG_PIN));
-  delay(50);
+
 
   if (_on) {
     if (_seasawMode) {
