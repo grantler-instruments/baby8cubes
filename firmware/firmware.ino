@@ -186,17 +186,39 @@ void showStepColor(int index, int red, int green, int blue) {
   strip.setPixelColor(index, strip.Color(red, green, blue));
   strip.show();
 }
+void showStepColor(int index, uint32_t color) {
+  strip.clear();
+  strip.setPixelColor(index, color);
+  strip.show();
+}
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void renderStepAndIncrement() {
   // TODO: only turn off note of note of current step
-  usbMIDI.sendNoteOff(60, 0, 1);
+  // usbMIDI.sendNoteOff(60, 0, 1);
+
+  auto note = 60;
+  auto color = strip.Color(0, 0, 0);
+  if (_hallValues[_step * 4]) {
+    note = 60;
+    color = strip.Color(255, 0, 0);
+  } else if (_hallValues[_step * 4 + 1]) {
+    note = 61;
+    color = strip.Color(0, 255, 0);
+  } else if (_hallValues[_step * 4 + 2]) {
+    note = 62;
+    color = strip.Color(0, 0, 255);
+  } else if (_hallValues[_step * 4 + 3]) {
+    note = 63;
+    color = strip.Color(0, 255, 255);
+  }
 
   showStepLed(_step);
-  showStepColor(_step, 255, 0, 0);
-  onNoteOn(1, 60, 127);
-  usbMIDI.sendNoteOn(60, _velocity, 1);
+  showStepColor(_step, color);
+
+  onNoteOn(1, note, 127);
+  usbMIDI.sendNoteOn(note, _velocity, 1);
   _mainAmp.gain(((float)(_velocity)) / 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
