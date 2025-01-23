@@ -9,7 +9,7 @@
 #include <Adafruit_VL53L0X.h>
 #include <Adafruit_MPU6050.h>
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
-#include "Parameter.h"
+#include <Parameter.h>
 #include "config.h"
 #include "helpers.h"
 #include "voice.h"
@@ -35,7 +35,8 @@ int _step = 0;
 int _velocity = 127;
 int _distance = 0;
 
-bool _hallValues[NUMSTEPS * 4];
+bool _hallValues[NUMSTEPS * NUMCORNERS];
+bool _lastHallValues[NUMSTEPS * NUMCORNERS];
 
 
 Voice _voices[NUMVOICES];
@@ -97,7 +98,8 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NE
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 Adafruit_MPU6050 mpu;
 unsigned long _timestamp = 0;
-
+unsigned long _lastChangeTimestamp = 0;
+int _lastChangeIndex = -1;
 
 ParameterGroup _parameters;
 Parameter<bool> _on;
@@ -105,6 +107,10 @@ Parameter<bool> _seasawMode;
 
 VL53L0X_RangingMeasurementData_t _measure;
 sensors_event_t _a, _g, _temp;
+
+
+uint32_t _colors[NUMCORNERS] = { strip.Color(255, 0, 0), strip.Color(0, 255, 0), strip.Color(0, 0, 255), strip.Color(255, 0, 255) };
+
 
 
 
@@ -152,15 +158,15 @@ void neoPixelTest() {
     strip.clear();
     strip.setPixelColor(i, strip.Color(255, 0, 0));
     strip.show();
-    delay(500);
+    delay(100);
     strip.clear();
     strip.setPixelColor(i, strip.Color(0, 255, 0));
     strip.show();
-    delay(500);
+    delay(100);
     strip.clear();
     strip.setPixelColor(i, strip.Color(0, 0, 255));
     strip.show();
-    delay(500);
+    delay(100);
     strip.clear();
   }
   // strip.setPixelColor(0, strip.Color(255, 0, 0));
@@ -194,31 +200,50 @@ void showStepColor(int index, uint32_t color) {
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
+void renderNeoPixels() {
+  strip.clear();
+  auto color = strip.Color(0, 0, 0);
+  if (_hallValues[_step * NUMCORNERS]) {
+    color = _colors[0];
+  } else if (_hallValues[_step * NUMCORNERS + 1]) {
+    color = _colors[1];
+  } else if (_hallValues[_step * NUMCORNERS + 2]) {
+    color = _colors[2];
+  } else if (_hallValues[_step * NUMCORNERS + 3]) {
+    color = _colors[3];
+  }
+  strip.setPixelColor(_step, color);
+
+  if ((_lastChangeIndex != -1) && _lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME < millis()) {
+    strip.setPixelColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
+  }
+  strip.show();
+}
 void renderStepAndIncrement() {
   // TODO: only turn off note of note of current step
   // usbMIDI.sendNoteOff(60, 0, 1);
 
-  auto note = 60;
+  auto note = -1;
   auto color = strip.Color(0, 0, 0);
-  if (_hallValues[_step * 4]) {
+  if (_hallValues[_step * NUMCORNERS]) {
     note = 60;
-    color = strip.Color(255, 0, 0);
-  } else if (_hallValues[_step * 4 + 1]) {
+  } else if (_hallValues[_step * NUMCORNERS + 1]) {
     note = 61;
-    color = strip.Color(0, 255, 0);
-  } else if (_hallValues[_step * 4 + 2]) {
+  } else if (_hallValues[_step * NUMCORNERS + 2]) {
     note = 62;
-    color = strip.Color(0, 0, 255);
-  } else if (_hallValues[_step * 4 + 3]) {
+  } else if (_hallValues[_step * NUMCORNERS + 3]) {
     note = 63;
-    color = strip.Color(0, 255, 255);
+  }
+  if (note != -1) {
+    onNoteOn(1, note, 127);
   }
 
-  showStepLed(_step);
-  showStepColor(_step, color);
 
-  onNoteOn(1, note, 127);
+  renderNeoPixels();
+  showStepLed(_step);
+
   usbMIDI.sendNoteOn(note, _velocity, 1);
+
   _mainAmp.gain(((float)(_velocity)) / 127);
   _step = (_step + 1) % NUMSTEPS;
   _timestamp = millis();
@@ -237,11 +262,22 @@ void readSensors() {
   for (auto i = 0; i < 16; i++) {
     _hallAMux.channel(i);
     _hallBMux.channel(i);
+    // save last hall values
+    _lastHallValues[i] = _hallValues[i];
+    _lastHallValues[i + 16] = _hallValues[i + 16];
+    // read new hall values
     _hallValues[i] = (analogRead(HALL_A_SIG_PIN) < 64) ? 1 : 0;
     _hallValues[i + 16] = (analogRead(HALL_B_SIG_PIN) < 64) ? 1 : 0;
+
+    if (_hallValues[i] != _lastHallValues[i]) {
+      _lastChangeIndex = i;
+      _lastChangeTimestamp = millis();
+    } else if (_hallValues[i + 16] != _lastHallValues[i + 16]) {
+      _lastChangeIndex = i + 16;
+      _lastChangeTimestamp = millis();
+    }
   }
 }
-
 
 
 void onNoteOn(byte channel, byte note, byte velocity) {

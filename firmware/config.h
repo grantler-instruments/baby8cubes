@@ -1,5 +1,7 @@
 #define NUMSTEPS 8
+#define NUMCORNERS 4
 #define NUMVOICES 8
+
 #define NEOPIXEL_PIN 39
 #define POTI_PIN 40
 #define BUTTON_PIN 41
@@ -26,3 +28,4 @@
 #define CC_ACCELERATION_X 10
 #define CC_ACCELERATION_Y 20
 
+#define HALL_CHANGE_FEEDBACK_TIME 500
