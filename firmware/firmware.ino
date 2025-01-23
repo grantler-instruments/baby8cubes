@@ -29,11 +29,14 @@ CD74HC4067 _hallAMux(HALL_A_SELECT_0_PIN, HALL_A_SELECT_1_PIN, HALL_A_SELECT_2_P
 CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_PIN, HALL_B_SELECT_3_PIN);
 
 
-int _bpm = 120;
 int _bpmModulator = 0;
-int _step = 0;
-int _velocity = 127;
+int _volume = 127;
 int _distance = 0;
+
+
+float _timeStep = 0.1;
+
+
 
 bool _hallValues[NUMSTEPS * NUMCORNERS];
 bool _lastHallValues[NUMSTEPS * NUMCORNERS];
@@ -60,8 +63,6 @@ AudioEffectDelay _delay;
 AudioMixer4 _delayMixer;
 
 
-
-
 AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
 AudioConnection c1(_voices[1]._amp, 0, _firstMixer, 1);
 AudioConnection c2(_voices[2]._amp, 0, _firstMixer, 2);
@@ -82,6 +83,7 @@ AudioConnection c12(_bitcrusher, _mainAmp);
 AudioConnection c13(_mainAmp, 0, _headphones, 0);
 AudioConnection c14(_mainAmp, 0, _headphones, 1);
 AudioConnection c15(_mainAmp, 0, _dac, 0);
+AudioConnection c16(_mainAmp, 0, _dac, 1);
 
 AudioConnection _mainAmpToUsbL(_mainAmp, 0, _usbOutput, 0);  // left channel
 AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
@@ -104,6 +106,14 @@ int _lastChangeIndex = -1;
 ParameterGroup _parameters;
 Parameter<bool> _on;
 Parameter<bool> _seasawMode;
+Parameter<int> _bpm;
+
+Parameter<int> _position;
+Parameter<float> _force;
+Parameter<float> _velocity;
+Parameter<float> _dampeningFactor;
+
+
 
 VL53L0X_RangingMeasurementData_t _measure;
 sensors_event_t _a, _g, _temp;
@@ -203,35 +213,35 @@ void hideStepLed() {
 void renderNeoPixels() {
   strip.clear();
   auto color = strip.Color(0, 0, 0);
-  if (_hallValues[_step * NUMCORNERS]) {
+  if (_hallValues[_position * NUMCORNERS]) {
     color = _colors[0];
-  } else if (_hallValues[_step * NUMCORNERS + 1]) {
+  } else if (_hallValues[_position * NUMCORNERS + 1]) {
     color = _colors[1];
-  } else if (_hallValues[_step * NUMCORNERS + 2]) {
+  } else if (_hallValues[_position * NUMCORNERS + 2]) {
     color = _colors[2];
-  } else if (_hallValues[_step * NUMCORNERS + 3]) {
+  } else if (_hallValues[_position * NUMCORNERS + 3]) {
     color = _colors[3];
   }
-  strip.setPixelColor(_step, color);
+  strip.setPixelColor(_position, color);
 
   if ((_lastChangeIndex != -1) && _lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME < millis()) {
     strip.setPixelColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
   }
   strip.show();
 }
-void renderStepAndIncrement() {
+void tick() {
   // TODO: only turn off note of note of current step
   // usbMIDI.sendNoteOff(60, 0, 1);
 
   auto note = -1;
   auto color = strip.Color(0, 0, 0);
-  if (_hallValues[_step * NUMCORNERS]) {
+  if (_hallValues[_position * NUMCORNERS]) {
     note = 60;
-  } else if (_hallValues[_step * NUMCORNERS + 1]) {
+  } else if (_hallValues[_position * NUMCORNERS + 1]) {
     note = 61;
-  } else if (_hallValues[_step * NUMCORNERS + 2]) {
+  } else if (_hallValues[_position * NUMCORNERS + 2]) {
     note = 62;
-  } else if (_hallValues[_step * NUMCORNERS + 3]) {
+  } else if (_hallValues[_position * NUMCORNERS + 3]) {
     note = 63;
   }
   if (note != -1) {
@@ -240,13 +250,29 @@ void renderStepAndIncrement() {
 
 
   renderNeoPixels();
-  showStepLed(_step);
+  showStepLed(_position);
 
-  usbMIDI.sendNoteOn(note, _velocity, 1);
+  usbMIDI.sendNoteOn(note, _volume, 1);
 
-  _mainAmp.gain(((float)(_velocity)) / 127);
-  _step = (_step + 1) % NUMSTEPS;
+  _mainAmp.gain(((float)(_volume)) / 127);
+  _position = (_position + 1) % NUMSTEPS;
   _timestamp = millis();
+}
+void seasawTick() {
+  _velocity = _velocity + _force * _timeStep;
+  _position = _position + _velocity * _timeStep;
+
+
+  if (_position < 0) {
+    _position = 0;
+    _velocity *= -1;
+    _velocity *= _dampeningFactor;
+  }
+  if (_position > 7) {
+    _position = 7;
+    _velocity *= -1;
+    _velocity *= _dampeningFactor;
+  }
 }
 void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
@@ -311,8 +337,19 @@ void setup() {
     _hallValues[i] = 0;
   }
 
+  // setup parameters
   _on.setup("on", true);
   _seasawMode.setup("seasaw", false);
+  _bpm.setup("bpm", 120, 0, 400);
+
+  _position("position", 0, 0, NUMSTEPS);
+
+  // seasaw parameters
+  _velocity.setup("velocity", 0, -1, 1);
+  _force.setup("force", 0, -1, 1);
+  _dampeningFactor.setup("dampening", 0.8, 0, 1);
+
+
 
   // midi
   Serial.print("setup midi engine ... ");
@@ -384,9 +421,9 @@ void loop() {
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
     if (_measure.RangeMilliMeter > 100) {
-      _velocity = 127;
+      _volume = 127;
     } else {
-      _velocity = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
+      _volume = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
     }
   }
 
@@ -426,13 +463,10 @@ void loop() {
 
   if (_on) {
     if (_seasawMode) {
-      // TODO: physcis
-      if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
-        renderStepAndIncrement();
-      }
+      seasawTick();
     } else {
       if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
-        renderStepAndIncrement();
+        tick();
       }
     }
   }
