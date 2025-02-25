@@ -98,7 +98,7 @@ AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
-Adafruit_MPU6050 mpu;
+Adafruit_MPU6050 _mpu;
 unsigned long _timestamp = 0;
 unsigned long _lastChangeTimestamp = 0;
 int _lastChangeIndex = -1;
@@ -185,17 +185,8 @@ void neoPixelTest() {
   Serial.println(": done");
 }
 
-void ledTest() {
-  Serial.print("started led test");
-  for (auto i = 0; i < NUMSTEPS; i++) {
-    showStepLed(i);
-    delay(1000);
-  }
-  Serial.println(": done");
-}
-
-void showStepLed(int index) {
-  _ledMux.channel(index);
+void updatePlayheadIndicator() {
+  _ledMux.channel(_position);
 }
 void showStepColor(int index, int red, int green, int blue) {
   strip.clear();
@@ -210,7 +201,7 @@ void showStepColor(int index, uint32_t color) {
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
-void renderNeoPixels() {
+void updateNeoPixels() {
   strip.clear();
   auto color = strip.Color(0, 0, 0);
   if (_hallValues[_position * NUMCORNERS]) {
@@ -224,8 +215,10 @@ void renderNeoPixels() {
   }
   strip.setPixelColor(_position, color);
 
-  if ((_lastChangeIndex != -1) && _lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME < millis()) {
+  if ((_lastChangeIndex != -1) && (_lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME > millis())) {
     strip.setPixelColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
+  }else{
+    _lastChangeIndex = -1;
   }
   strip.show();
 }
@@ -246,13 +239,11 @@ void tick() {
   }
   if (note != -1) {
     onNoteOn(1, note, 127);
+    usbMIDI.sendNoteOn(note, _volume, 1);
   }
 
-
-  renderNeoPixels();
-  showStepLed(_position);
-
-  usbMIDI.sendNoteOn(note, _volume, 1);
+  updateNeoPixels();
+  updatePlayheadIndicator();
 
   _mainAmp.gain(((float)(_volume)) / 127);
   _position = (_position + 1) % NUMSTEPS;
@@ -279,7 +270,7 @@ void readSensors() {
   bool buttonValue = digitalRead(BUTTON_PIN);
   _seasawMode = !buttonValue;
   _bpm = map(potiValue, 0, 1024, 600, 20);
-  mpu.getEvent(&_a, &_g, &_temp);
+  _mpu.getEvent(&_a, &_g, &_temp);
   lox.rangingTest(&_measure, false);
 
 
@@ -298,9 +289,13 @@ void readSensors() {
     if (_hallValues[i] != _lastHallValues[i]) {
       _lastChangeIndex = i;
       _lastChangeTimestamp = millis();
+      Serial.println("changed");
+      Serial.println(i);
     } else if (_hallValues[i + 16] != _lastHallValues[i + 16]) {
       _lastChangeIndex = i + 16;
       _lastChangeTimestamp = millis();
+       Serial.println("changed");
+      Serial.println(i+16);
     }
   }
 }
@@ -342,7 +337,7 @@ void setup() {
   _seasawMode.setup("seasaw", false);
   _bpm.setup("bpm", 120, 0, 400);
 
-  _position("position", 0, 0, NUMSTEPS);
+  _position.setup("position", 0, 0, NUMSTEPS);
 
   // seasaw parameters
   _velocity.setup("velocity", 0, -1, 1);
@@ -390,7 +385,7 @@ void setup() {
   Serial.println("done");
 
 
-  // set led high
+  // set playhead led high
   digitalWrite(LED_SIG_PIN, HIGH);
 
   Serial.print("setup distance sensor ... ");
@@ -402,10 +397,10 @@ void setup() {
 
   delay(1000);
   Serial.print("setup motion sensor ... ");
-  if (!mpu.begin()) {
+  if (!_mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
   }
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  _mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   Serial.println("done");
 
 
@@ -416,7 +411,7 @@ void loop() {
   auto timestamp = millis();
   usbMIDI.read();
   readSensors();
-  printHallValues(_hallValues);
+  // printHallValues(_hallValues);
 
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
