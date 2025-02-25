@@ -96,7 +96,7 @@ AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 // TODO: feedback some signal to the delay line, add a controllable amp for that
 
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 Adafruit_MPU6050 _mpu;
 unsigned long _timestamp = 0;
@@ -119,7 +119,10 @@ VL53L0X_RangingMeasurementData_t _measure;
 sensors_event_t _a, _g, _temp;
 
 
-uint32_t _colors[NUMCORNERS] = { strip.Color(255, 0, 0), strip.Color(0, 255, 0), strip.Color(0, 0, 255), strip.Color(255, 0, 255) };
+//four dots (blue), one dots (red), two dots (green), trhee dot (purple)
+uint32_t _colors[NUMCORNERS] = { strip.Color(0, 255, 0), strip.Color(255, 255, 0), strip.Color(0, 0, 255), strip.Color(255, 0, 255) };
+
+
 
 
 
@@ -217,7 +220,7 @@ void updateNeoPixels() {
 
   if ((_lastChangeIndex != -1) && (_lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME > millis())) {
     strip.setPixelColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
-  }else{
+  } else {
     _lastChangeIndex = -1;
   }
   strip.show();
@@ -289,13 +292,9 @@ void readSensors() {
     if (_hallValues[i] != _lastHallValues[i]) {
       _lastChangeIndex = i;
       _lastChangeTimestamp = millis();
-      Serial.println("changed");
-      Serial.println(i);
     } else if (_hallValues[i + 16] != _lastHallValues[i + 16]) {
       _lastChangeIndex = i + 16;
       _lastChangeTimestamp = millis();
-       Serial.println("changed");
-      Serial.println(i+16);
     }
   }
 }
