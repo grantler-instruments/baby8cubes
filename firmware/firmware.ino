@@ -9,7 +9,8 @@
 #include <Adafruit_VL53L0X.h>
 #include <Adafruit_MPU6050.h>
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
-#include <Parameter.h>
+#include <Parameter.h>   //https://github.com/thomasgeissl/Parameter
+#include <uClock.h>      //https://github.com/midilab/uClock
 #include "config.h"
 #include "helpers.h"
 #include "voice.h"
@@ -23,24 +24,18 @@
 // http://www.freesound.org/people/DWSD/sounds/171104/
 #include "AudioSampleKick.h"
 
-
 CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
 CD74HC4067 _hallAMux(HALL_A_SELECT_0_PIN, HALL_A_SELECT_1_PIN, HALL_A_SELECT_2_PIN, HALL_A_SELECT_3_PIN);
 CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_PIN, HALL_B_SELECT_3_PIN);
-
 
 int _bpmModulator = 0;
 int _volume = 127;
 int _distance = 0;
 
-
 float _timeStep = 0.1;
-
-
 
 bool _hallValues[NUMSTEPS * NUMCORNERS];
 bool _lastHallValues[NUMSTEPS * NUMCORNERS];
-
 
 Voice _voices[NUMVOICES];
 int _currentVoice = 0;
@@ -61,7 +56,6 @@ AudioEffectFreeverb _freeverb;
 AudioEffectReverb _reverb;
 AudioEffectDelay _delay;
 AudioMixer4 _delayMixer;
-
 
 AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
 AudioConnection c1(_voices[1]._amp, 0, _firstMixer, 1);
@@ -95,7 +89,6 @@ AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 // AudioConnection delay3ToMixer(_delay, 3, _delayMixer, 3);
 // TODO: feedback some signal to the delay line, add a controllable amp for that
 
-
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 Adafruit_MPU6050 _mpu;
@@ -113,21 +106,11 @@ Parameter<float> _force;
 Parameter<float> _velocity;
 Parameter<float> _dampeningFactor;
 
-
-
 VL53L0X_RangingMeasurementData_t _measure;
 sensors_event_t _a, _g, _temp;
 
-
-//four dots (blue), one dots (red), two dots (green), trhee dot (purple)
+// four dots (blue), one dots (red), two dots (green), trhee dot (purple)
 uint32_t _colors[NUMCORNERS] = { strip.Color(0, 255, 0), strip.Color(255, 255, 0), strip.Color(0, 0, 255), strip.Color(255, 0, 255) };
-
-
-
-
-
-
-
 
 #define BUFFER_SIZE 10  // Number of readings to store in history
 int distanceBuffer[BUFFER_SIZE];
@@ -159,7 +142,6 @@ void checkJumpy() {
   // Define threshold based on your setup's noise level
   isJumpy = variance > 30.0;  // Example threshold
 }
-
 
 void audioTest() {
   _voices[0].noteOn(60);
@@ -256,7 +238,6 @@ void seasawTick() {
   _velocity = _velocity + _force * _timeStep;
   _position = _position + _velocity * _timeStep;
 
-
   if (_position < 0) {
     _position = 0;
     _velocity *= -1;
@@ -275,7 +256,6 @@ void readSensors() {
   _bpm = map(potiValue, 0, 1024, 600, 20);
   _mpu.getEvent(&_a, &_g, &_temp);
   lox.rangingTest(&_measure, false);
-
 
   // TODO: detect if a step has changed, if so, show new color for 1s
 
@@ -299,6 +279,17 @@ void readSensors() {
   }
 }
 
+void onSync24Callback(uint32_t tick) {
+  usbMIDI.sendRealTime(usbMIDI.Clock);
+}
+
+void onClockStart() {
+  usbMIDI.sendRealTime(usbMIDI.Start);
+}
+
+void onClockStop() {
+  usbMIDI.sendRealTime(usbMIDI.Stop);
+}
 
 void onNoteOn(byte channel, byte note, byte velocity) {
   _currentVoice = (_currentVoice + 1) % NUMVOICES;
@@ -343,8 +334,6 @@ void setup() {
   _force.setup("force", 0, -1, 1);
   _dampeningFactor.setup("dampening", 0.8, 0, 1);
 
-
-
   // midi
   Serial.print("setup midi engine ... ");
   usbMIDI.setHandleNoteOff(onNoteOff);
@@ -364,7 +353,6 @@ void setup() {
     _secondMixer.gain(i, 0.4);
   }
 
-
   _filter.setLowpass(0, 20000, 0.5);
   _bitcrusher.bits(12);
   _bitcrusher.sampleRate(44100);
@@ -374,15 +362,12 @@ void setup() {
   // audioTest();
   Serial.println("done");
 
-
-
   // led
   Serial.print("setup leds ... ");
   strip.begin();
   strip.setBrightness(255);  // Set BRIGHTNESS to about 1/5 (max = 255)
   strip.show();
   Serial.println("done");
-
 
   // set playhead led high
   digitalWrite(LED_SIG_PIN, HIGH);
@@ -393,7 +378,6 @@ void setup() {
   }
   Serial.println("done");
 
-
   delay(1000);
   Serial.print("setup motion sensor ... ");
   if (!_mpu.begin()) {
@@ -402,6 +386,18 @@ void setup() {
   _mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   Serial.println("done");
 
+  // setup midi clock
+  //  Inits the clock
+  uClock.init();
+  // Set the callback function for the clock output to send MIDI Sync message.
+  uClock.setOnSync24(onSync24Callback);
+  // Set the callback function for MIDI Start and Stop messages.
+  uClock.setOnClockStart(onClockStart);
+  uClock.setOnClockStop(onClockStop);
+  // Set the clock BPM to 126 BPM
+  uClock.setTempo(120);
+  // Starts the clock, tick-tac-tick-tac...
+  uClock.start();
 
   neoPixelTest();
 }
@@ -410,6 +406,8 @@ void loop() {
   auto timestamp = millis();
   usbMIDI.read();
   readSensors();
+  uClock.setTempo(_bpm + _bpmModulator);
+
   // printHallValues(_hallValues);
 
   if (_measure.RangeStatus != 4) {
@@ -452,8 +450,6 @@ void loop() {
   } else {
     _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
   }
-
-
 
   if (_on) {
     if (_seasawMode) {
