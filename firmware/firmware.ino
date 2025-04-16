@@ -283,6 +283,11 @@ void onSync24Callback(uint32_t tick) {
   usbMIDI.sendRealTime(usbMIDI.Clock);
 }
 
+void onStepCallback(uint32_t) {
+  tick();
+}
+
+
 void onClockStart() {
   usbMIDI.sendRealTime(usbMIDI.Start);
 }
@@ -397,6 +402,8 @@ void setup() {
   // Set the clock BPM to 126 BPM
   uClock.setTempo(120);
   // Starts the clock, tick-tac-tick-tac...
+  uClock.setOnStep(onStepCallback);
+
   uClock.start();
 
   neoPixelTest();
@@ -451,13 +458,13 @@ void loop() {
     _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
   }
 
-  if (_on) {
-    if (_seasawMode) {
-      seasawTick();
-    } else {
-      if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
-        tick();
-      }
-    }
-  }
+  // if (_on) {
+  //   if (_seasawMode) {
+  //     seasawTick();
+  //   } else {
+  //     if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
+  //       tick();
+  //     }
+  //   }
+  // }
 }
