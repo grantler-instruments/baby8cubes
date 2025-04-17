@@ -1,3 +1,3 @@
-// Audio data converted from WAV file by wav2sketch
+// Audio data converted from audio file by wav2sketch_js
 
-extern const unsigned int AudioSampleSnare[2817];
+extern const unsigned int AudioSampleSnare[1377];

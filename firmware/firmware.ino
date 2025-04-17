@@ -1,5 +1,5 @@
 // !!!! select usb type: serial + audio + midi
-
+#include <Arduino.h> 
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -15,14 +15,6 @@
 #include "helpers.h"
 #include "voice.h"
 
-// http://www.freesound.org/people/KEVOY/sounds/82583/
-#include "AudioSampleSnare.h"
-// http://www.freesound.org/people/zgump/sounds/86334/
-#include "AudioSampleTomtom.h"
-// http://www.freesound.org/people/mhc/sounds/102790/
-#include "AudioSampleHihat.h"
-// http://www.freesound.org/people/DWSD/sounds/171104/
-#include "AudioSampleKick.h"
 
 CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
 CD74HC4067 _hallAMux(HALL_A_SELECT_0_PIN, HALL_A_SELECT_1_PIN, HALL_A_SELECT_2_PIN, HALL_A_SELECT_3_PIN);
@@ -415,8 +407,6 @@ void loop() {
   readSensors();
   uClock.setTempo(_bpm + _bpmModulator);
 
-  // printHallValues(_hallValues);
-
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
     if (_measure.RangeMilliMeter > 100) {
@@ -457,14 +447,4 @@ void loop() {
   } else {
     _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
   }
-
-  // if (_on) {
-  //   if (_seasawMode) {
-  //     seasawTick();
-  //   } else {
-  //     if (timestamp - _timestamp > (60.0 * 1000 / (_bpm + _bpmModulator))) {
-  //       tick();
-  //     }
-  //   }
-  // }
 }

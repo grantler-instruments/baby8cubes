@@ -1,9 +1,10 @@
 #pragma once
 #include <Audio.h>
-#include "AudioSampleSnare.h"   // http://www.freesound.org/people/KEVOY/sounds/82583/
-#include "AudioSampleTomtom.h"  // http://www.freesound.org/people/zgump/sounds/86334/
-#include "AudioSampleHihat.h"   // http://www.freesound.org/people/mhc/sounds/102790/
-#include "AudioSampleKick.h"    // http://www.freesound.org/people/DWSD/sounds/171104/
+
+#include "./AudioSampleKick.h"
+#include "./AudioSampleSnare.h"
+#include "./AudioSampleMacaras.h"
+#include "./AudioSampleClave.h"
 
 // Class to handle triggering an audio file with an envelope
 class Voice {
@@ -37,12 +38,12 @@ public:
         }
       case 62:
         {
-          _playMem.play(AudioSampleHihat);
+          _playMem.play(AudioSampleMacaras);
           break;
         }
       case 63:
         {
-          _playMem.play(AudioSampleTomtom);
+          _playMem.play(AudioSampleClave);
           break;
         }
     }
