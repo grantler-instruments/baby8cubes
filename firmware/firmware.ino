@@ -1,5 +1,5 @@
 // !!!! select usb type: serial + audio + midi
-#include <Arduino.h> 
+#include <Arduino.h>
 #include <Audio.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -204,6 +204,8 @@ void tick() {
   // usbMIDI.sendNoteOff(60, 0, 1);
 
   auto note = -1;
+  auto lastNote = -1;
+
   auto color = strip.Color(0, 0, 0);
   if (_hallValues[_position * NUMCORNERS]) {
     note = 60;
@@ -213,6 +215,20 @@ void tick() {
     note = 62;
   } else if (_hallValues[_position * NUMCORNERS + 3]) {
     note = 63;
+  }
+
+  if (_lastHallValues[_position * NUMCORNERS]) {
+    lastNote = 60;
+  } else if (_lastHallValues[_position * NUMCORNERS + 1]) {
+    lastNote = 61;
+  } else if (_lastHallValues[_position * NUMCORNERS + 2]) {
+    lastNote = 62;
+  } else if (_lastHallValues[_position * NUMCORNERS + 3]) {
+    lastNote = 63;
+  }
+  if (lastNote != -1) {
+    onNoteOff(1, lastNote, 127);
+    usbMIDI.sendNoteOn(lastNote, _volume, 1);
   }
   if (note != -1) {
     onNoteOn(1, note, 127);
