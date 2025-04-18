@@ -14,6 +14,7 @@
 #include "config.h"
 #include "helpers.h"
 #include "voice.h"
+#include "NeoPixelState.h"
 
 
 CD74HC4067 _ledMux(LED_SELECT_0_PIN, LED_SELECT_1_PIN, LED_SELECT_2_PIN, LED_SELECT_3_PIN);
@@ -26,6 +27,8 @@ int _distance = 0;
 
 float _timeStep = 0.1;
 bool _resetRequested = false;
+
+NeoPixelState _neoPixelState;
 
 bool _hallValues[NUMSTEPS * NUMCORNERS];
 bool _lastHallValues[NUMSTEPS * NUMCORNERS];
@@ -82,7 +85,7 @@ AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 // AudioConnection delay3ToMixer(_delay, 3, _delayMixer, 3);
 // TODO: feedback some signal to the delay line, add a controllable amp for that
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel _strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 Adafruit_MPU6050 _mpu;
 unsigned long _timestamp = 0;
@@ -103,7 +106,7 @@ VL53L0X_RangingMeasurementData_t _measure;
 sensors_event_t _a, _g, _temp;
 
 // four dots (blue), one dots (red), two dots (green), trhee dot (purple)
-uint32_t _colors[NUMCORNERS] = { strip.Color(0, 255, 0), strip.Color(255, 255, 0), strip.Color(0, 0, 255), strip.Color(255, 0, 255) };
+uint32_t _colors[NUMCORNERS] = { _strip.Color(0, 255, 0), _strip.Color(255, 255, 0), _strip.Color(0, 0, 255), _strip.Color(255, 0, 255) };
 
 #define BUFFER_SIZE 10  // Number of readings to store in history
 int distanceBuffer[BUFFER_SIZE];
@@ -143,22 +146,22 @@ void audioTest() {
 void neoPixelTest() {
   Serial.print("started neopixel test");
   for (auto i = 0; i < NUMSTEPS; i++) {
-    strip.clear();
-    strip.setPixelColor(i, strip.Color(255, 0, 0));
-    strip.show();
+    _strip.clear();
+    _strip.setPixelColor(i, _strip.Color(255, 0, 0));
+    _strip.show();
     delay(100);
-    strip.clear();
-    strip.setPixelColor(i, strip.Color(0, 255, 0));
-    strip.show();
+    _strip.clear();
+    _strip.setPixelColor(i, _strip.Color(0, 255, 0));
+    _strip.show();
     delay(100);
-    strip.clear();
-    strip.setPixelColor(i, strip.Color(0, 0, 255));
-    strip.show();
+    _strip.clear();
+    _strip.setPixelColor(i, _strip.Color(0, 0, 255));
+    _strip.show();
     delay(100);
-    strip.clear();
+    _strip.clear();
   }
-  // strip.setPixelColor(0, strip.Color(255, 0, 0));
-  strip.show();
+  // _strip.setPixelColor(0, _strip.Color(255, 0, 0));
+  _strip.show();
   delay(100);
   Serial.println(": done");
 }
@@ -167,38 +170,34 @@ void updatePlayheadIndicator() {
   _ledMux.channel(_position);
 }
 void showStepColor(int index, int red, int green, int blue) {
-  strip.clear();
-  strip.setPixelColor(index, strip.Color(red, green, blue));
-  strip.show();
+  _strip.clear();
+  _strip.setPixelColor(index, _strip.Color(red, green, blue));
+  _strip.show();
 }
 void showStepColor(int index, uint32_t color) {
-  strip.clear();
-  strip.setPixelColor(index, color);
-  strip.show();
+  _strip.clear();
+  _strip.setPixelColor(index, color);
+  _strip.show();
 }
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
 void updateNeoPixels() {
-  strip.clear();
-  auto color = strip.Color(0, 0, 0);
-  if (_hallValues[_position * NUMCORNERS]) {
-    color = _colors[0];
-  } else if (_hallValues[_position * NUMCORNERS + 1]) {
-    color = _colors[1];
-  } else if (_hallValues[_position * NUMCORNERS + 2]) {
-    color = _colors[2];
-  } else if (_hallValues[_position * NUMCORNERS + 3]) {
-    color = _colors[3];
-  }
-  strip.setPixelColor(_position, color);
-
   if ((_lastChangeIndex != -1) && (_lastChangeTimestamp + HALL_CHANGE_FEEDBACK_TIME > millis())) {
-    strip.setPixelColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
+    _neoPixelState.setColor(_lastChangeIndex / NUMCORNERS, _colors[_lastChangeIndex % NUMCORNERS]);
   } else {
     _lastChangeIndex = -1;
   }
-  strip.show();
+
+  if (_neoPixelState._hasChanged) {
+    _strip.clear();
+    for (auto i = 0; i < NUMSTEPS; i++) {
+      auto color = _neoPixelState._pixels[i];
+      _strip.setPixelColor(i, color);
+    }
+    _strip.show();
+    _neoPixelState._hasChanged = false;
+  }
 }
 
 void updateControls() {
@@ -244,7 +243,7 @@ void updateControls() {
   }
 }
 void tick() {
-  if(_resetRequested){
+  if (_resetRequested) {
     _position = 0;
     _resetRequested = false;
   }
@@ -252,7 +251,6 @@ void tick() {
   auto note = -1;
   auto lastNote = -1;
 
-  auto color = strip.Color(0, 0, 0);
   if (_hallValues[_position * NUMCORNERS]) {
     note = 60;
   } else if (_hallValues[_position * NUMCORNERS + 1]) {
@@ -272,6 +270,20 @@ void tick() {
   } else if (_lastHallValues[_position * NUMCORNERS + 3]) {
     lastNote = 63;
   }
+
+  auto color = _strip.Color(0, 0, 0);
+  if (_hallValues[_position * NUMCORNERS]) {
+    color = _colors[0];
+  } else if (_hallValues[_position * NUMCORNERS + 1]) {
+    color = _colors[1];
+  } else if (_hallValues[_position * NUMCORNERS + 2]) {
+    color = _colors[2];
+  } else if (_hallValues[_position * NUMCORNERS + 3]) {
+    color = _colors[3];
+  }
+  _neoPixelState.setColor(_position, color);
+
+  //send out midi notes via usb and the audio renderer
   if (lastNote != -1) {
     onNoteOff(1, lastNote, 127);
     usbMIDI.sendNoteOn(lastNote, _volume, 1);
@@ -281,7 +293,6 @@ void tick() {
     usbMIDI.sendNoteOn(note, _volume, 1);
   }
 
-  updateNeoPixels();
   updatePlayheadIndicator();
 
   _mainAmp.gain(((float)(_volume)) / 127);
@@ -423,9 +434,9 @@ void setup() {
 
   // led
   Serial.print("setup leds ... ");
-  strip.begin();
-  strip.setBrightness(255);  // Set BRIGHTNESS to about 1/5 (max = 255)
-  strip.show();
+  _strip.begin();
+  _strip.setBrightness(255);  // Set BRIGHTNESS to about 1/5 (max = 255)
+  _strip.show();
   Serial.println("done");
 
   // set playhead led high
@@ -446,18 +457,12 @@ void setup() {
   Serial.println("done");
 
   // setup midi clock
-  //  Inits the clock
   uClock.init();
-  // Set the callback function for the clock output to send MIDI Sync message.
   uClock.setOnSync24(onSync24Callback);
-  // Set the callback function for MIDI Start and Stop messages.
   uClock.setOnClockStart(onClockStart);
   uClock.setOnClockStop(onClockStop);
-  // Set the clock BPM to 126 BPM
   uClock.setTempo(120);
-  // Starts the clock, tick-tac-tick-tac...
   uClock.setOnStep(onStepCallback);
-
   uClock.start();
 
   neoPixelTest();
@@ -467,5 +472,6 @@ void loop() {
   usbMIDI.read();
   readSensors();
   updateControls();
+  updateNeoPixels();
   uClock.setTempo(_bpm + _bpmModulator);
 }
