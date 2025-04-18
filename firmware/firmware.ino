@@ -25,6 +25,7 @@ int _volume = 127;
 int _distance = 0;
 
 float _timeStep = 0.1;
+bool _resetRequested = false;
 
 bool _hallValues[NUMSTEPS * NUMCORNERS];
 bool _lastHallValues[NUMSTEPS * NUMCORNERS];
@@ -199,9 +200,54 @@ void updateNeoPixels() {
   }
   strip.show();
 }
+
+void updateControls() {
+  if (_measure.RangeStatus != 4) {
+    updateDistanceBuffer(_measure.RangeMilliMeter);
+    if (_measure.RangeMilliMeter > 100) {
+      _volume = 127;
+    } else {
+      _volume = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
+    }
+  }
+
+  if (_a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 22000 - map(_a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
+    _freeverb.roomsize(map(_a.acceleration.x, 0.5, -5, 0, 1));
+    _freeverb.damping(map(_a.acceleration.x, 0.5, -5, 0, 1));
+    _reverb.reverbTime(map(_a.acceleration.x, 0.5, -5, 0, 5));
+  } else {
+    _filter.setLowpass(0, 22000, 0.5);
+    _freeverb.roomsize(0);
+    _freeverb.damping(0);
+    _reverb.reverbTime(0);
+  }
+
+  if (_a.acceleration.x > 0.5) {
+    _bitcrusher.bits(16 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 16)));
+    _bitcrusher.sampleRate(44100 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 44100)));
+  } else {
+    _bitcrusher.bits(16);
+    _bitcrusher.sampleRate(44100);
+  }
+
+  if (_a.acceleration.x < 0.5) {
+    _filter.setLowpass(0, 5000 - map(_a.acceleration.x, 0.5, -5, 0, 5000));
+  } else {
+    _filter.setLowpass(0, 22000, 0.5);
+  }
+
+  if (_a.acceleration.y < -0.7) {
+    _bpmModulator = -map(_a.acceleration.y, -0.7, -3, 0, 80);
+  } else {
+    _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
+  }
+}
 void tick() {
-  // TODO: only turn off note of note of current step
-  // usbMIDI.sendNoteOff(60, 0, 1);
+  if(_resetRequested){
+    _position = 0;
+    _resetRequested = false;
+  }
 
   auto note = -1;
   auto lastNote = -1;
@@ -418,49 +464,8 @@ void setup() {
 }
 
 void loop() {
-  auto timestamp = millis();
   usbMIDI.read();
   readSensors();
+  updateControls();
   uClock.setTempo(_bpm + _bpmModulator);
-
-  if (_measure.RangeStatus != 4) {
-    updateDistanceBuffer(_measure.RangeMilliMeter);
-    if (_measure.RangeMilliMeter > 100) {
-      _volume = 127;
-    } else {
-      _volume = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
-    }
-  }
-
-  if (_a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 22000 - map(_a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
-    _freeverb.roomsize(map(_a.acceleration.x, 0.5, -5, 0, 1));
-    _freeverb.damping(map(_a.acceleration.x, 0.5, -5, 0, 1));
-    _reverb.reverbTime(map(_a.acceleration.x, 0.5, -5, 0, 5));
-  } else {
-    _filter.setLowpass(0, 22000, 0.5);
-    _freeverb.roomsize(0);
-    _freeverb.damping(0);
-    _reverb.reverbTime(0);
-  }
-
-  if (_a.acceleration.x > 0.5) {
-    _bitcrusher.bits(16 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 16)));
-    _bitcrusher.sampleRate(44100 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 44100)));
-  } else {
-    _bitcrusher.bits(16);
-    _bitcrusher.sampleRate(44100);
-  }
-
-  if (_a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 5000 - map(_a.acceleration.x, 0.5, -5, 0, 5000));
-  } else {
-    _filter.setLowpass(0, 22000, 0.5);
-  }
-
-  if (_a.acceleration.y < -0.7) {
-    _bpmModulator = -map(_a.acceleration.y, -0.7, -3, 0, 80);
-  } else {
-    _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
-  }
 }
