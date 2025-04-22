@@ -11,6 +11,7 @@
 #include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
 #include <Parameter.h>   //https://github.com/thomasgeissl/Parameter
 #include <uClock.h>      //https://github.com/midilab/uClock
+#include "RunningAverage.h" //https://github.com/RobTillaart/RunningAverage/
 #include "config.h"
 #include "helpers.h"
 #include "voice.h"
@@ -36,6 +37,10 @@ bool _lastHallValues[NUMSTEPS * NUMCORNERS];
 Voice _voices[NUMVOICES];
 int _currentVoice = 0;
 
+RunningAverage _accelerationX(16);
+RunningAverage _accelerationY(16);
+
+
 AudioControlSGTL5000 _audioShield;
 AudioOutputUSB _usbOutput;
 
@@ -52,38 +57,42 @@ AudioEffectFreeverb _freeverb;
 AudioEffectReverb _reverb;
 AudioEffectDelay _delay;
 AudioMixer4 _delayMixer;
+AudioMixer4 _delayInMixer;
 
-AudioConnection c0(_voices[0]._amp, 0, _firstMixer, 0);
-AudioConnection c1(_voices[1]._amp, 0, _firstMixer, 1);
-AudioConnection c2(_voices[2]._amp, 0, _firstMixer, 2);
-AudioConnection c3(_voices[3]._amp, 0, _firstMixer, 3);
 
-AudioConnection c4(_voices[4]._amp, 0, _secondMixer, 0);
-AudioConnection c5(_voices[5]._amp, 0, _secondMixer, 1);
-AudioConnection c6(_voices[6]._amp, 0, _secondMixer, 2);
-AudioConnection c7(_voices[7]._amp, 0, _secondMixer, 3);
+// connect voices to mixer
+AudioConnection voice0ToMixer(_voices[0]._amp, 0, _firstMixer, 0);
+AudioConnection voice1ToMixer(_voices[1]._amp, 0, _firstMixer, 1);
+AudioConnection voice2ToMixer(_voices[2]._amp, 0, _firstMixer, 2);
+AudioConnection voice3ToMixer(_voices[3]._amp, 0, _firstMixer, 3);
+AudioConnection voice4ToMixer(_voices[4]._amp, 0, _secondMixer, 0);
+AudioConnection voice5ToMixer(_voices[5]._amp, 0, _secondMixer, 1);
+AudioConnection voice6ToMixer(_voices[6]._amp, 0, _secondMixer, 2);
+AudioConnection voice7ToMixer(_voices[7]._amp, 0, _secondMixer, 3);
+AudioConnection firstMixerToMainMixer(_firstMixer, 0, _mainMixer, 0);
+AudioConnection secondMixerToMainMixer(_secondMixer, 0, _mainMixer, 1);
 
-AudioConnection c8(_firstMixer, 0, _mainMixer, 0);
-AudioConnection c9(_secondMixer, 0, _mainMixer, 1);
+AudioConnection _mainMixerToDelayInMixer(_mainMixer, 0, _delayInMixer, 0);
+// AudioConnection _filterToDelayInMixer0(_filter, 0, _delayInMixer, 0);
+AudioConnection _delayInMixerToDelay(_delayInMixer, 0, _delay, 0);
 
-AudioConnection c10(_mainMixer, 0, _filter, 0);
-AudioConnection c11(_filter, _bitcrusher);
-AudioConnection c12(_bitcrusher, _mainAmp);
+AudioConnection delay0ToDelayMixer(_delay, 0, _delayMixer, 0);
+AudioConnection delay1ToDelayMixer(_delay, 1, _delayMixer, 1);
+AudioConnection delay2ToDelayMixer(_delay, 2, _delayMixer, 2);
+AudioConnection delay3ToDelayMixer(_delay, 3, _delayMixer, 3);
 
-AudioConnection c13(_mainAmp, 0, _headphones, 0);
-AudioConnection c14(_mainAmp, 0, _headphones, 1);
-AudioConnection c15(_mainAmp, 0, _dac, 0);
-AudioConnection c16(_mainAmp, 0, _dac, 1);
+AudioConnection _delayMixerToBitCrusher(_delayMixer, 0, _bitcrusher, 0);
+AudioConnection _delayFeedbackToDelayInMixer(_delayMixer, 0, _delayInMixer, 1);
+AudioConnection _bitcrusherToMainAmp(_bitcrusher, _mainAmp);
+
+AudioConnection _mainAmpToHeadphones0(_mainAmp, 0, _headphones, 0);
+AudioConnection _mainAmpToHeadphones1(_mainAmp, 0, _headphones, 1);
+AudioConnection _mainAmpToDac0(_mainAmp, 0, _dac, 0);
+AudioConnection _mainAmpToDac1(_mainAmp, 0, _dac, 1);
 
 AudioConnection _mainAmpToUsbL(_mainAmp, 0, _usbOutput, 0);  // left channel
 AudioConnection _mainAmpToUsbR(_mainAmp, 0, _usbOutput, 1);  // right channel
 
-// AudioConnection bitcrusherToDelay(_bitcrusher, _delay);
-// AudioConnection delay0ToMixer(_delay, 0, _delayMixer, 0);
-// AudioConnection delay1ToMixer(_delay, 1, _delayMixer, 1);
-// AudioConnection delay2ToMixer(_delay, 2, _delayMixer, 2);
-// AudioConnection delay3ToMixer(_delay, 3, _delayMixer, 3);
-// TODO: feedback some signal to the delay line, add a controllable amp for that
 
 Adafruit_NeoPixel _strip = Adafruit_NeoPixel(NUMSTEPS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
@@ -169,16 +178,7 @@ void neoPixelTest() {
 void updatePlayheadIndicator() {
   _ledMux.channel(_position);
 }
-void showStepColor(int index, int red, int green, int blue) {
-  _strip.clear();
-  _strip.setPixelColor(index, _strip.Color(red, green, blue));
-  _strip.show();
-}
-void showStepColor(int index, uint32_t color) {
-  _strip.clear();
-  _strip.setPixelColor(index, color);
-  _strip.show();
-}
+
 void hideStepLed() {
   digitalWrite(LED_SIG_PIN, LOW);
 }
@@ -201,6 +201,8 @@ void updateNeoPixels() {
 }
 
 void updateControls() {
+  uClock.setTempo(_bpm + _bpmModulator);
+
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
     if (_measure.RangeMilliMeter > 100) {
@@ -210,36 +212,45 @@ void updateControls() {
     }
   }
 
-  if (_a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 22000 - map(_a.acceleration.x, 0.5, -5, 0, 21900), 0.8);
-    _freeverb.roomsize(map(_a.acceleration.x, 0.5, -5, 0, 1));
-    _freeverb.damping(map(_a.acceleration.x, 0.5, -5, 0, 1));
-    _reverb.reverbTime(map(_a.acceleration.x, 0.5, -5, 0, 5));
+  Serial.print(_a.acceleration.x);
+  Serial.print(", ");
+  Serial.print(_a.acceleration.y);
+  Serial.print(" ");
+  Serial.println(_volume);
+
+  auto threshold = 1.3;
+  
+
+  if (_accelerationX.getAverage() < threshold-0.1) {
+    _delayMixer.gain(0, .4);
+    _delayMixer.gain(1, 0.4);
+    _delayMixer.gain(2, 0.4);
+    _delayMixer.gain(3, 0.4);
+    _delayMixer.gain(0, map(_a.acceleration.x, threshold, -5, 0, 1));
+    _delayInMixer.gain(1, map(_a.acceleration.x, threshold, -5, 0, 1));  //feedback
   } else {
-    _filter.setLowpass(0, 22000, 0.5);
-    _freeverb.roomsize(0);
-    _freeverb.damping(0);
-    _reverb.reverbTime(0);
+    _delayMixer.gain(0, 0);
+    _delayMixer.gain(0, .4);
+    _delayMixer.gain(1, 0);
+    _delayMixer.gain(2, 0);
+    _delayMixer.gain(3, 0);
+
+    _delayInMixer.gain(1, 0);  //feedback
   }
 
-  if (_a.acceleration.x > 0.5) {
-    _bitcrusher.bits(16 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 16)));
-    _bitcrusher.sampleRate(44100 - (int)(map(_a.acceleration.x, 0.5, 5, 0, 44100)));
+  if (_accelerationX.getAverage() > threshold + 0.1) {
+    _bitcrusher.bits(16 - (int)(map(_accelerationX.getAverage(), 0.5, 5, 0, 16)));
+    _bitcrusher.sampleRate(44100 - (int)(map(_accelerationX.getAverage(), 0.5, 5, 0, 44100)));
   } else {
     _bitcrusher.bits(16);
     _bitcrusher.sampleRate(44100);
   }
 
-  if (_a.acceleration.x < 0.5) {
-    _filter.setLowpass(0, 5000 - map(_a.acceleration.x, 0.5, -5, 0, 5000));
-  } else {
-    _filter.setLowpass(0, 22000, 0.5);
-  }
 
   if (_a.acceleration.y < -0.7) {
-    _bpmModulator = -map(_a.acceleration.y, -0.7, -3, 0, 80);
+    _bpmModulator = -map(_accelerationY.getAverage(), -0.7, -3, 0, 80);
   } else {
-    _bpmModulator = map(_a.acceleration.y, 0.7, 3, 0, 80);
+    _bpmModulator = map(_accelerationY.getAverage(), 0.7, 3, 0, 80);
   }
 }
 void tick() {
@@ -281,12 +292,17 @@ void tick() {
   } else if (_hallValues[_position * NUMCORNERS + 3]) {
     color = _colors[3];
   }
+  for (auto i = 0; i < NUMSTEPS; i++) {
+    if (i != _position) {
+      _neoPixelState.setColor(i, _strip.Color(0, 0, 0));
+    }
+  }
   _neoPixelState.setColor(_position, color);
 
   //send out midi notes via usb and the audio renderer
   if (lastNote != -1) {
     onNoteOff(1, lastNote, 127);
-    usbMIDI.sendNoteOn(lastNote, _volume, 1);
+    usbMIDI.sendNoteOff(lastNote, 0, 1);
   }
   if (note != -1) {
     onNoteOn(1, note, 127);
@@ -320,6 +336,7 @@ void readSensors() {
   _seasawMode = !buttonValue;
   _bpm = map(potiValue, 0, 1024, 600, 20);
   _mpu.getEvent(&_a, &_g, &_temp);
+  _accelerationX.addValue(_a.acceleration.x);
   lox.rangingTest(&_measure, false);
 
   // TODO: detect if a step has changed, if so, show new color for 1s
@@ -426,6 +443,22 @@ void setup() {
   _filter.setLowpass(0, 20000, 0.5);
   _bitcrusher.bits(12);
   _bitcrusher.sampleRate(44100);
+
+  _delayInMixer.gain(0, 0.5);
+  _delayInMixer.gain(1, 0);
+
+  _delay.delay(0, 50);
+  _delay.delay(1, 78);
+  _delay.delay(2, 103);
+  _delay.delay(3, 174);
+  for (auto i = 4; i < 8; i++) {
+    _delay.disable(i);
+  }
+  _delayMixer.gain(0, 0.4);
+  _delayMixer.gain(1, 0.4);
+  _delayMixer.gain(2, 0.4);
+  _delayMixer.gain(3, 0.4);
+
   _mainMixer.gain(0, 0.5);
   _mainMixer.gain(1, 0.5);
   _mainAmp.gain(1);
@@ -473,5 +506,4 @@ void loop() {
   readSensors();
   updateControls();
   updateNeoPixels();
-  uClock.setTempo(_bpm + _bpmModulator);
 }
