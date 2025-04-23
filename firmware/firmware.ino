@@ -8,10 +8,10 @@
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_VL53L0X.h>
 #include <Adafruit_MPU6050.h>
-#include <CD74HC4067.h>  //https://github.com/waspinator/CD74HC4067
-#include <Parameter.h>   //https://github.com/thomasgeissl/Parameter
-#include <uClock.h>      //https://github.com/midilab/uClock
-#include "RunningAverage.h" //https://github.com/RobTillaart/RunningAverage/
+#include <CD74HC4067.h>      //https://github.com/waspinator/CD74HC4067
+#include <Parameter.h>       //https://github.com/thomasgeissl/Parameter
+#include <uClock.h>          //https://github.com/midilab/uClock
+#include "RunningAverage.h"  //https://github.com/RobTillaart/RunningAverage/
 #include "config.h"
 #include "helpers.h"
 #include "voice.h"
@@ -25,6 +25,9 @@ CD74HC4067 _hallBMux(HALL_B_SELECT_0_PIN, HALL_B_SELECT_1_PIN, HALL_B_SELECT_2_P
 int _bpmModulator = 0;
 int _volume = 127;
 int _distance = 0;
+float _lastStableDistance = 100;  // Default to max distance
+long _lastStableReadingTime = 0;
+
 
 float _timeStep = 0.1;
 bool _resetRequested = false;
@@ -39,7 +42,7 @@ int _currentVoice = 0;
 
 RunningAverage _accelerationX(16);
 RunningAverage _accelerationY(16);
-
+// RunningAverage _distance(16);
 
 AudioControlSGTL5000 _audioShield;
 AudioOutputUSB _usbOutput;
@@ -123,8 +126,9 @@ int bufferIndex = 0;
 bool isJumpy = false;
 
 void updateDistanceBuffer(int newValue) {
-  distanceBuffer[bufferIndex] = newValue;
-  bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;  // Circular buffer
+  // Treat "no reading" as maximum distance (200mm)
+  distanceBuffer[bufferIndex] = (_measure.RangeStatus == 4) ? 200 : newValue;
+  bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 }
 
 float calculateVariance() {
@@ -144,10 +148,14 @@ float calculateVariance() {
 
 void checkJumpy() {
   float variance = calculateVariance();
-  // Define threshold based on your setup's noise level
-  isJumpy = variance > 30.0;  // Example threshold
-}
+  isJumpy = variance > JUMPY_THRESHOLD;
 
+  // Debug output
+  Serial.print("Variance: ");
+  Serial.print(variance);
+  Serial.print(" | Jumpy: ");
+  Serial.println(isJumpy ? "YES" : "NO");
+}
 void audioTest() {
   _voices[0].noteOn(60);
   delay(250);
@@ -202,13 +210,15 @@ void updateNeoPixels() {
 
 void updateControls() {
   uClock.setTempo(_bpm + _bpmModulator);
-
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
-    if (_measure.RangeMilliMeter > 100) {
-      _volume = 127;
-    } else {
-      _volume = 127 - map(_measure.RangeMilliMeter, 30, 100, 127, 0);
+    checkJumpy();
+    if (!isJumpy) {
+      _lastStableDistance = _measure.RangeMilliMeter;
+      _lastStableReadingTime = millis();
+      _volume = (_lastStableDistance > 100) ? 127 : 127 - map(_lastStableDistance, 30, 100, 127, 0);
+    } else if (millis() - _lastStableReadingTime > STABLE_TIMEOUT) {
+      _volume = 127;  // Default to max volume
     }
   }
 
@@ -219,9 +229,9 @@ void updateControls() {
   Serial.println(_volume);
 
   auto threshold = 1.3;
-  
 
-  if (_accelerationX.getAverage() < threshold-0.1) {
+
+  if (_accelerationX.getAverage() < threshold - 0.1) {
     _delayMixer.gain(0, .4);
     _delayMixer.gain(1, 0.4);
     _delayMixer.gain(2, 0.4);
@@ -262,14 +272,19 @@ void tick() {
   auto note = -1;
   auto lastNote = -1;
 
+  auto color = _strip.Color(0, 0, 0);
   if (_hallValues[_position * NUMCORNERS]) {
     note = 60;
+    color = _colors[0];
   } else if (_hallValues[_position * NUMCORNERS + 1]) {
     note = 61;
+    color = _colors[1];
   } else if (_hallValues[_position * NUMCORNERS + 2]) {
     note = 62;
+    color = _colors[2];
   } else if (_hallValues[_position * NUMCORNERS + 3]) {
     note = 63;
+    color = _colors[3];
   }
 
   if (_lastHallValues[_position * NUMCORNERS]) {
@@ -282,21 +297,8 @@ void tick() {
     lastNote = 63;
   }
 
-  auto color = _strip.Color(0, 0, 0);
-  if (_hallValues[_position * NUMCORNERS]) {
-    color = _colors[0];
-  } else if (_hallValues[_position * NUMCORNERS + 1]) {
-    color = _colors[1];
-  } else if (_hallValues[_position * NUMCORNERS + 2]) {
-    color = _colors[2];
-  } else if (_hallValues[_position * NUMCORNERS + 3]) {
-    color = _colors[3];
-  }
-  for (auto i = 0; i < NUMSTEPS; i++) {
-    if (i != _position) {
-      _neoPixelState.setColor(i, _strip.Color(0, 0, 0));
-    }
-  }
+
+  _neoPixelState.clear();
   _neoPixelState.setColor(_position, color);
 
   //send out midi notes via usb and the audio renderer
@@ -333,7 +335,7 @@ void seasawTick() {
 void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
   bool buttonValue = digitalRead(BUTTON_PIN);
-  _seasawMode = !buttonValue;
+  _on = !buttonValue;
   _bpm = map(potiValue, 0, 1024, 600, 20);
   _mpu.getEvent(&_a, &_g, &_temp);
   _accelerationX.addValue(_a.acceleration.x);
@@ -361,7 +363,9 @@ void readSensors() {
   }
 }
 
-void onSync24Callback(uint32_t tick) {
+void onPPQNCallback(uint32_t tick) {
+}
+void onSync24Callback(uint32_t uTick) {
   usbMIDI.sendRealTime(usbMIDI.Clock);
 }
 
@@ -411,6 +415,14 @@ void setup() {
 
   // setup parameters
   _on.setup("on", true);
+  _on.addListener([](Parameter<bool>& parameter) {
+    Serial.println(parameter.getName() + " changed, new value: " + String(parameter.get()));
+    if (parameter) {
+      uClock.start();
+    } else {
+      uClock.pause();
+    }
+  });
   _seasawMode.setup("seasaw", false);
   _bpm.setup("bpm", 120, 0, 400);
 
@@ -491,6 +503,7 @@ void setup() {
 
   // setup midi clock
   uClock.init();
+  uClock.setOnPPQN(onPPQNCallback);
   uClock.setOnSync24(onSync24Callback);
   uClock.setOnClockStart(onClockStart);
   uClock.setOnClockStop(onClockStop);
