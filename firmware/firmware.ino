@@ -151,10 +151,10 @@ void checkJumpy() {
   isJumpy = variance > JUMPY_THRESHOLD;
 
   // Debug output
-  Serial.print("Variance: ");
-  Serial.print(variance);
-  Serial.print(" | Jumpy: ");
-  Serial.println(isJumpy ? "YES" : "NO");
+  // Serial.print("Variance: ");
+  // Serial.print(variance);
+  // Serial.print(" | Jumpy: ");
+  // Serial.println(isJumpy ? "YES" : "NO");
 }
 void audioTest() {
   _voices[0].noteOn(60);
@@ -222,11 +222,11 @@ void updateControls() {
     }
   }
 
-  Serial.print(_a.acceleration.x);
-  Serial.print(", ");
-  Serial.print(_a.acceleration.y);
-  Serial.print(" ");
-  Serial.println(_volume);
+  // Serial.print(_a.acceleration.x);
+  // Serial.print(", ");
+  // Serial.print(_a.acceleration.y);
+  // Serial.print(" ");
+  // Serial.println(_volume);
 
   auto threshold = 1.3;
 
@@ -335,7 +335,9 @@ void seasawTick() {
 void readSensors() {
   auto potiValue = analogRead(POTI_PIN);
   bool buttonValue = digitalRead(BUTTON_PIN);
-  _on = !buttonValue;
+  if (_on == buttonValue) {
+    _on = !buttonValue;
+  }
   _bpm = map(potiValue, 0, 1024, 600, 20);
   _mpu.getEvent(&_a, &_g, &_temp);
   _accelerationX.addValue(_a.acceleration.x);
@@ -369,8 +371,10 @@ void onSync24Callback(uint32_t uTick) {
   usbMIDI.sendRealTime(usbMIDI.Clock);
 }
 
-void onStepCallback(uint32_t) {
-  tick();
+void onStepCallback(uint32_t uTick) {
+  if (_on) {
+    tick();
+  }
 }
 
 
@@ -509,7 +513,7 @@ void setup() {
   uClock.setOnClockStop(onClockStop);
   uClock.setTempo(120);
   uClock.setOnStep(onStepCallback);
-  uClock.start();
+  uClock.stop();
 
   neoPixelTest();
 }
