@@ -209,6 +209,7 @@ void updateNeoPixels() {
 }
 
 void updateControls() {
+  Serial.println(_bpmModulator);
   uClock.setTempo(_bpm + _bpmModulator);
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
@@ -249,18 +250,18 @@ void updateControls() {
   }
 
   if (_accelerationX.getAverage() > threshold + 0.1) {
-    _bitcrusher.bits(16 - (int)(map(_accelerationX.getAverage(), 0.5, 5, 0, 16)));
-    _bitcrusher.sampleRate(44100 - (int)(map(_accelerationX.getAverage(), 0.5, 5, 0, 44100)));
+    _bitcrusher.bits(16 - (int)(map(_accelerationX.getAverage(), 0.5, 8, 0, 16)));
+    _bitcrusher.sampleRate(44100 - (int)(map(_accelerationX.getAverage(), 0.5, 8, 0, 44100)));
   } else {
     _bitcrusher.bits(16);
     _bitcrusher.sampleRate(44100);
   }
 
 
-  if (_a.acceleration.y < -0.7) {
-    _bpmModulator = -map(_accelerationY.getAverage(), -0.7, -3, 0, 80);
-  } else {
-    _bpmModulator = map(_accelerationY.getAverage(), 0.7, 3, 0, 80);
+  if (_accelerationY.getAverage() < -ACCELERATION_Y_THRESHOLD) {
+    _bpmModulator = -map(_accelerationY.getAverage(), -ACCELERATION_Y_THRESHOLD, -3, 0, 120);
+  } else if (_accelerationY.getAverage() > ACCELERATION_Y_THRESHOLD) {
+    _bpmModulator = map(_accelerationY.getAverage(), ACCELERATION_Y_THRESHOLD, 3, 0, 120);
   }
 }
 void tick() {
@@ -341,6 +342,8 @@ void readSensors() {
   _bpm = map(potiValue, 0, 1024, 600, 20);
   _mpu.getEvent(&_a, &_g, &_temp);
   _accelerationX.addValue(_a.acceleration.x);
+  _accelerationY.addValue(_a.acceleration.y);
+
   lox.rangingTest(&_measure, false);
 
   // TODO: detect if a step has changed, if so, show new color for 1s
