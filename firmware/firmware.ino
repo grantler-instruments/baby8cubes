@@ -426,6 +426,7 @@ void setup() {
     Serial.println(parameter.getName() + " changed, new value: " + String(parameter.get()));
     if (parameter) {
       uClock.start();
+      _headphones.volume(map(_volume, 0, 127, 0, 1));
     } else {
       uClock.pause();
     }
