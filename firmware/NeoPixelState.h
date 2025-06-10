@@ -9,6 +9,7 @@ public:
     for(auto i = 0; i < NUMSTEPS; i++){
       _pixels[i] = 0;
     }
+    _hadChanged = true;
   }
   void setColor(int index, uint32_t color) {
     if (color == _pixels[index]) {
