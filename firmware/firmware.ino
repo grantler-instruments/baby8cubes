@@ -209,7 +209,6 @@ void updateNeoPixels() {
 }
 
 void updateControls() {
-  Serial.println(_bpmModulator);
   uClock.setTempo(_bpm + _bpmModulator);
   if (_measure.RangeStatus != 4) {
     updateDistanceBuffer(_measure.RangeMilliMeter);
@@ -426,7 +425,6 @@ void setup() {
     Serial.println(parameter.getName() + " changed, new value: " + String(parameter.get()));
     if (parameter) {
       uClock.start();
-      _headphones.volume(map(_volume, 0, 127, 0, 1));
     } else {
       uClock.pause();
     }
@@ -520,6 +518,13 @@ void setup() {
   uClock.stop();
 
   neoPixelTest();
+  delay(1000);
+
+  float potiValue = analogRead(POTI_PIN);
+  float volume = 1 - potiValue/1024.0;
+  Serial.print("setup headphone level: ");
+  Serial.println(volume);
+  _audioShield.volume(volume);
 }
 
 void loop() {
